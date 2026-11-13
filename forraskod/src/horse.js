@@ -50,8 +50,8 @@ function coatMaterial(dirtBias, streak = [55, 28, 12], extra = {}) {
           c = mix(c, uPatch, clamp(dp*0.85 + big*0.35, 0.0, 1.0)); }
         if (uPatchAmt > 0.5) { float pn = vnoise(vObj*2.1 + 13.0)*0.72 + vnoise(vObj*6.5 + 3.0)*0.28; c = mix(c, uPatch, smoothstep(0.52, 0.57, pn)); }
         if (uBlaze > 0.5) { float fd = dot(vObj, uFace); float al = dot(vObj, uFaceD);
-          float wdt = mix(0.055, 0.03, smoothstep(0.1, 0.35, al)) + 0.012*smoothstep(0.45, 0.7, al);
-          float bz = smoothstep(wdt, wdt - 0.01, abs(vObj.x)) * smoothstep(-0.05, -0.02, fd) * smoothstep(0.05, 0.1, al) * smoothstep(0.72, 0.62, al);
+          float wdt = mix(0.055, 0.03, smoothstep(0.08, 0.28, al)) + 0.014*smoothstep(0.36, 0.52, al);
+          float bz = smoothstep(wdt, wdt - 0.01, abs(vObj.x)) * smoothstep(-0.05, -0.02, fd) * smoothstep(0.04, 0.08, al) * smoothstep(0.6, 0.5, al);
           c = mix(c, vec3(0.93), bz); }
         if (uSock > 0.5) { c = mix(c, vec3(0.93), smoothstep(uSockY + 0.02, uSockY - 0.02, vObj.y)); }
         float dd = vnoise(vObj*24.0)*0.55 + vnoise(vObj*61.0)*0.3 + vnoise(vObj*7.0)*0.15;
@@ -100,16 +100,16 @@ export class Horse {
 
     // ---- nyak ----
     this.neck = new THREE.Group(); this.neck.position.set(0, 1.45 - BODY_Y, 0.5); this.body.add(this.neck);
-    const NK = [[0.34, 1.35, 0.205, 0.31], [0.56, 1.51, 0.177, 0.26], [0.76, 1.71, 0.146, 0.205], [0.9, 1.9, 0.12, 0.165], [0.99, 2.04, 0.102, 0.13], [1.035, 2.12, 0.085, 0.1]];
+    const NK = [[0.34, 1.35, 0.21, 0.315], [0.55, 1.5, 0.183, 0.268], [0.73, 1.68, 0.153, 0.215], [0.86, 1.85, 0.127, 0.172], [0.94, 1.98, 0.108, 0.138], [0.975, 2.055, 0.09, 0.106]];
     const neckGeo = loft(NK.map(([z, y, rx, ry]) => ({ p: [0, y - 1.45, z - 0.5], rx, ry })), { radial: 18, sub: 4, power: 2.1 });
     add(this.neck, neckGeo, this.mats.body);
     this.neckSmp = neckGeo.userData.samples;
 
     // ---- fej ----
-    this.head = new THREE.Group(); this.head.position.set(0, 2.13 - 1.45, 1.03 - 0.5); this.neck.add(this.head);
-    const D = new THREE.Vector3(0, -0.721, 0.693), U = new THREE.Vector3(0, 0.693, 0.721), HL = 0.7;
+    this.head = new THREE.Group(); this.head.position.set(0, 2.065 - 1.45, 0.97 - 0.5); this.neck.add(this.head);
+    const D = new THREE.Vector3(0, -0.74, 0.673), U = new THREE.Vector3(0, 0.673, 0.74), HL = 0.575;
     this.headD = D; this.headU = U;
-    const HR = [[0, 0.05, 0.05], [0.07, 0.1, 0.105], [0.2, 0.122, 0.15], [0.36, 0.108, 0.13], [0.55, 0.086, 0.098], [0.74, 0.077, 0.084], [0.87, 0.085, 0.09], [0.95, 0.074, 0.072], [1.0, 0.036, 0.035]];
+    const HR = [[0, 0.056, 0.056], [0.06, 0.102, 0.112], [0.18, 0.12, 0.158], [0.33, 0.114, 0.15], [0.49, 0.098, 0.124], [0.65, 0.087, 0.104], [0.79, 0.084, 0.097], [0.89, 0.088, 0.096], [0.96, 0.078, 0.08], [1.0, 0.046, 0.046]];
     this.headRing = (s) => { // interpolált gyűrű az s helyen
       let i = 0; while (i < HR.length - 2 && HR[i + 1][0] < s) i++;
       const a = HR[i], b = HR[i + 1], t = clamp((s - a[0]) / (b[0] - a[0]), 0, 1);
@@ -118,15 +118,20 @@ export class Horse {
       return { c, rx, ry };
     };
     const headGeo = loft(HR.map(([s, rx, ry]) => { const c = D.clone().multiplyScalar(s * HL).addScaledVector(U, -ry); return { p: [c.x, c.y, c.z], rx, ry }; }), { radial: 18, sub: 3, power: 2.2 });
+    // pofa formázása: állkapocs, pofacsont, orrlyuk, áll
+    this.headPt = (sv, v, side, out = 1.0) => { const r = this.headRing(sv); return r.c.clone().addScaledVector(U, r.ry * v * out).add(new THREE.Vector3(-side * r.rx * Math.sqrt(Math.max(0, 1 - v * v)) * out, 0, 0)); };
+    {
+      const b = (sv, v, side, r, a) => { const p = this.headPt(sv, v, side); return [Math.abs(p.x), p.y, p.z, r, r, r, a]; };
+      sculpt(headGeo, [b(0.2, -0.55, 1, 0.07, 0.016), b(0.34, 0.15, 1, 0.05, 0.008), b(0.9, 0.3, 1, 0.03, 0.009), [0, ...this.headPt(0.95, -0.9, 0).toArray().slice(1), 0.035, 0.03, 0.035, 0.012], b(0.24, 0.8, 1, 0.035, 0.007)]);
+    }
     add(this.head, headGeo, this.mats.head);
     this.mats.head.userData.u.uFace.value.copy(U); this.mats.head.userData.u.uFaceD.value.copy(D);
-    this.headPt = (s, v, side, out = 1.0) => { const r = this.headRing(s); return r.c.clone().addScaledVector(U, r.ry * v * out).add(new THREE.Vector3(-side * r.rx * Math.sqrt(Math.max(0, 1 - v * v)) * out, 0, 0)); };
     // szem, orrlyuk
     const eyeM = new THREE.MeshPhysicalMaterial({ color: '#120a06', roughness: 0.1, clearcoat: 1, clearcoatRoughness: 0.05, envMapIntensity: 1.6 });
     for (const s of [-1, 1]) {
-      const e = add(this.head, new THREE.SphereGeometry(0.03, 14, 12), eyeM, false); e.scale.set(0.75, 0.95, 1.2); e.position.copy(this.headPt(0.25, 0.58, s, 0.9));
+      const e = add(this.head, new THREE.SphereGeometry(0.03, 14, 12), eyeM, false); e.scale.set(0.75, 0.95, 1.2); e.position.copy(this.headPt(0.27, 0.56, s, 0.92));
       const lid = add(this.head, new THREE.TorusGeometry(0.03, 0.007, 6, 16), this.mats.head, false); lid.position.copy(e.position); lid.rotation.y = Math.PI / 2 + s * 0.25; lid.scale.set(1, 0.95, 1.2);
-      const n = add(this.head, new THREE.SphereGeometry(0.019, 8, 6), eyeM, false); n.scale.set(0.7, 1.3, 0.8); n.position.copy(this.headPt(0.92, 0.25, s, 0.9));
+      const n = add(this.head, new THREE.SphereGeometry(0.019, 8, 6), eyeM, false); n.scale.set(0.7, 1.3, 0.8); n.position.copy(this.headPt(0.92, 0.28, s, 0.95));
     }
     // fülek
     this.ears = [];
@@ -181,11 +186,11 @@ export class Horse {
 
     // ---- lábak ----
     const FU = [[0, 0.10, 0.13, 0.02], [0.2, 0.095, 0.125, 0.025], [0.32, 0.085, 0.11, 0.02], [0.5, 0.07, 0.085, 0.012], [0.72, 0.052, 0.062, 0.004], [0.88, 0.047, 0.056, 0.004], [0.97, 0.052, 0.06, 0.006], [1.0, 0.05, 0.058, 0.004]];
-    const FL = [[0, 0.05, 0.058, 0.004], [0.1, 0.042, 0.05, 0], [0.4, 0.033, 0.046, -0.008], [0.75, 0.034, 0.047, -0.008], [0.92, 0.043, 0.054, -0.006], [1.0, 0.044, 0.052, -0.004]];
+    const FL = [[0, 0.054, 0.062, 0.004], [0.1, 0.046, 0.056, 0], [0.4, 0.038, 0.054, -0.01], [0.75, 0.039, 0.055, -0.01], [0.92, 0.049, 0.06, -0.006], [1.0, 0.05, 0.058, -0.004]];
     const HU = [[0, 0.125, 0.16, 0.04], [0.22, 0.112, 0.155, 0.05], [0.4, 0.086, 0.12, 0.035], [0.62, 0.062, 0.085, 0.012], [0.82, 0.046, 0.06, -0.008], [0.94, 0.045, 0.07, -0.022], [1.0, 0.044, 0.066, -0.02]];
-    const HLo = [[0, 0.044, 0.064, -0.016], [0.1, 0.038, 0.052, -0.006], [0.45, 0.032, 0.046, -0.008], [0.8, 0.034, 0.047, -0.008], [0.94, 0.043, 0.054, -0.006], [1, 0.044, 0.052, -0.004]];
-    const PS = [[0, 0.044, 0.05, -0.004], [0.4, 0.036, 0.04, 0], [0.85, 0.04, 0.043, 0], [1.0, 0.042, 0.045, 0]];
-    const hoofGeo = new THREE.CylinderGeometry(0.05, 0.064, HOOF_H, 14); hoofGeo.translate(0, -HOOF_H / 2, 0.01);
+    const HLo = [[0, 0.048, 0.072, -0.018], [0.1, 0.042, 0.06, -0.006], [0.45, 0.037, 0.054, -0.01], [0.8, 0.039, 0.055, -0.01], [0.94, 0.049, 0.06, -0.006], [1, 0.05, 0.058, -0.004]];
+    const PS = [[0, 0.05, 0.056, -0.004], [0.4, 0.042, 0.046, 0], [0.85, 0.047, 0.05, 0], [1.0, 0.05, 0.052, 0]];
+    const hoofGeo = new THREE.CylinderGeometry(0.056, 0.072, HOOF_H, 16); hoofGeo.translate(0, -HOOF_H / 2, 0.012);
     const pastGeo = limb(LP, PS, 10);
     const wrapProf = (prof, a, b) => prof.filter(([t]) => t >= a && t <= b).map(([t, rx, ry, dz]) => [t, rx * 1.22 + 0.006, ry * 1.18 + 0.006, dz]);
     this.legs = [];
