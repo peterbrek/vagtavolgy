@@ -155,6 +155,10 @@ export class DynTube {
 
 // Kis 3D zaj GLSL-ben a szőrzet, a foltok és a sár rajzolásához.
 export const GLSL_NOISE = `
+vec3 hash33(vec3 p){ p = fract(p*vec3(0.1031,0.1030,0.0973)); p += dot(p, p.yxz+33.33); return fract((p.xxy+p.yxx)*p.zyx); }
+float worley(vec3 p){ vec3 i = floor(p), f = fract(p); float d = 1.0;
+  for (int x=-1;x<=1;x++) for (int y=-1;y<=1;y++) for (int z=-1;z<=1;z++){ vec3 g = vec3(float(x),float(y),float(z)); vec3 o = hash33(i+g); d = min(d, length(g+o-f)); }
+  return d; }
 float hash31(vec3 p){ p = fract(p*0.3183099 + 0.1); p *= 17.0; return fract(p.x*p.y*p.z*(p.x+p.y+p.z)); }
 float vnoise(vec3 x){ vec3 i = floor(x); vec3 f = fract(x); f = f*f*(3.0-2.0*f);
   return mix(mix(mix(hash31(i+vec3(0,0,0)),hash31(i+vec3(1,0,0)),f.x), mix(hash31(i+vec3(0,1,0)),hash31(i+vec3(1,1,0)),f.x),f.y),

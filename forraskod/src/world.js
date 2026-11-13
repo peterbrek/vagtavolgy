@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { makeNoise2D, fbm, mulberry32, hash2, clamp, lerp, smoothstep } from './noise.js';
 import { canvasTexture } from './geom.js';
+import { makeTreeAssets } from './trees.js';
 
 export const SIZE = 700, HALF = 350, SEG = 240, CELL = SIZE / SEG, G = SEG + 1;
 export const WATER = -0.9;
@@ -11,7 +12,7 @@ export const TIE = { x: -20, z: -25 };
 export const ARENA = { x: 45, z: 15, hw: 42, hd: 24 };
 export const LAKE = { x: -175, z: 45, r: 48 };
 export const YARD = { x0: -36, x1: -4, z0: -33, z1: -14 };
-export const SUN_DIR = new THREE.Vector3(0.5, 0.78, 0.38).normalize();
+export const SUN_DIR = new THREE.Vector3(0.55, 0.64, 0.42).normalize();
 
 const nA = makeNoise2D(11), nB = makeNoise2D(23), nC = makeNoise2D(37), nD = makeNoise2D(53), nE = makeNoise2D(71);
 
@@ -254,22 +255,24 @@ export class World {
     this.sky = new THREE.Mesh(new THREE.SphereGeometry(900, 32, 16), mat);
     this.sky.frustumCulled = false; this.sky.renderOrder = -1;
     this.scene.add(this.sky);
-    const ctex = canvasTexture(256, 128, (ctx, w, h) => {
-      const r = mulberry32(9);
-      for (let i = 0; i < 26; i++) {
-        const x = w * (0.18 + r() * 0.64), y = h * (0.45 + r() * 0.25), rad = 18 + r() * 34;
-        const g = ctx.createRadialGradient(x, y, 0, x, y, rad);
-        g.addColorStop(0, 'rgba(255,255,255,0.9)'); g.addColorStop(0.6, 'rgba(255,255,255,0.45)'); g.addColorStop(1, 'rgba(255,255,255,0)');
-        ctx.fillStyle = g; ctx.beginPath(); ctx.arc(x, y, rad, 0, Math.PI * 2); ctx.fill();
-      }
+    const cloudTex = (seed) => canvasTexture(256, 128, (ctx, w, h) => {
+      const r = mulberry32(seed);
+      const puffs = [];
+      for (let i = 0; i < 22; i++) { const t = r(); puffs.push([w * (0.15 + t * 0.7), h * (0.62 - Math.sin(t * Math.PI) * (0.18 + r() * 0.16)), 14 + Math.sin(t * Math.PI) * (16 + r() * 18)]); }
+      for (const [x, y, rad] of puffs) { const g = ctx.createRadialGradient(x, y, 0, x, y, rad); g.addColorStop(0, 'rgba(255,255,255,1)'); g.addColorStop(0.72, 'rgba(255,255,255,0.92)'); g.addColorStop(1, 'rgba(255,255,255,0)'); ctx.fillStyle = g; ctx.beginPath(); ctx.arc(x, y, rad, 0, Math.PI * 2); ctx.fill(); }
+      ctx.globalCompositeOperation = 'source-atop';
+      const sh = ctx.createLinearGradient(0, h * 0.3, 0, h * 0.8); sh.addColorStop(0, 'rgba(255,250,240,0)'); sh.addColorStop(1, 'rgba(150,165,190,0.55)');
+      ctx.fillStyle = sh; ctx.fillRect(0, 0, w, h);
+      ctx.globalCompositeOperation = 'source-over';
     });
+    const ctexs = [cloudTex(9), cloudTex(19), cloudTex(29)];
     const r = mulberry32(17);
     this.clouds = new THREE.Group();
-    for (let i = 0; i < 16; i++) {
-      const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: ctex, fog: false, depthWrite: false, transparent: true, opacity: 0.75 + r() * 0.2 }));
-      const a = r() * Math.PI * 2, d = 250 + r() * 420;
-      sp.position.set(Math.cos(a) * d, 140 + r() * 90, Math.sin(a) * d);
-      const s = 140 + r() * 160; sp.scale.set(s, s * 0.42, 1);
+    for (let i = 0; i < 18; i++) {
+      const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: ctexs[i % 3], fog: false, depthWrite: false, transparent: true, opacity: 0.85 + r() * 0.15 }));
+      const a = r() * Math.PI * 2, d = 260 + r() * 420;
+      sp.position.set(Math.cos(a) * d, 120 + r() * 100, Math.sin(a) * d);
+      const sc = 130 + r() * 150; sp.scale.set(sc, sc * 0.5, 1);
       this.clouds.add(sp);
     }
     this.scene.add(this.clouds);
@@ -294,42 +297,14 @@ export class World {
       return g;
     };
     const prep = (g) => { const ng = g.index ? g.toNonIndexed() : g; ng.deleteAttribute('uv'); return ng; };
-    // fenyő
-    const con = [];
-    { const t = new THREE.CylinderGeometry(0.16, 0.26, 2.4, 6); t.translate(0, 1.2, 0); con.push(colorize(prep(t), trunkC, 0.1, 2)); }
-    const greens = ['#2f5a2e', '#36673a', '#3e7240'];
-    [[2.3, 3.8, 1.6], [1.85, 3.3, 3.3], [1.35, 2.9, 4.9], [0.8, 2.2, 6.4]].forEach(([r, h, y], i) => {
-      const c = new THREE.ConeGeometry(r, h, 9, 1); c.translate(0, y + h / 2, 0);
-      con.push(colorize(jitter(prep(c), 0.12, i * 13), new THREE.Color(greens[i % 3]), 0.08, 3 + i));
-    });
-    const conGeo = mergeGeometries(con); conGeo.computeVertexNormals();
-    // lombos
-    const dec = [];
-    { const t = new THREE.CylinderGeometry(0.2, 0.32, 3.4, 7); t.translate(0, 1.7, 0); dec.push(colorize(prep(t), trunkC2, 0.1, 4)); }
-    { const b = new THREE.CylinderGeometry(0.07, 0.12, 1.6, 5); b.rotateZ(0.7); b.translate(0.55, 3.2, 0); dec.push(colorize(prep(b), trunkC2, 0.1, 5)); }
-    const lg = ['#4e7f31', '#5a8c37', '#46742d', '#679a3e'];
-    [[1.75, 0, 4.6, 0], [1.4, 1.05, 3.9, 0.35], [1.3, -0.95, 4.0, -0.4], [1.2, 0.2, 5.6, -0.35], [1.1, -0.35, 3.6, 1.0], [1.0, 0.5, 3.7, -1.0]]
-      .forEach(([r, x, y, z], i) => {
-        const s = new THREE.IcosahedronGeometry(r, 1); s.translate(x, y, z);
-        dec.push(colorize(jitter(prep(s), 0.22, i * 7 + 1), new THREE.Color(lg[i % 4]), 0.1, 10 + i));
-      });
-    const decGeo = mergeGeometries(dec); decGeo.computeVertexNormals();
     // szikla
     const rk = new THREE.IcosahedronGeometry(1, 1);
     const rockGeo = colorize(jitter(prep(rk), 0.45, 3), new THREE.Color('#8d8880'), 0.12, 21);
     rockGeo.scale(1, 0.62, 1); rockGeo.computeVertexNormals();
 
     this.treeUniforms = { uTime: { value: 0 } };
-    const treeMat = new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true });
-    treeMat.onBeforeCompile = (sh) => {
-      sh.uniforms.uTime = this.treeUniforms.uTime;
-      sh.vertexShader = 'uniform float uTime;\n' + sh.vertexShader.replace('#include <begin_vertex>', `#include <begin_vertex>
-        #ifdef USE_INSTANCING
-        float ph = instanceMatrix[3][0]*0.21 + instanceMatrix[3][2]*0.17;
-        float sw = max(position.y - 2.0, 0.0) * 0.018;
-        transformed.x += sin(uTime*1.3 + ph) * sw; transformed.z += cos(uTime*1.1 + ph*1.3) * sw;
-        #endif`);
-    };
+    const TA = makeTreeAssets(this.treeUniforms.uTime);
+    const conGeo = TA.con, decGeo = TA.dec;
     const rockMat = new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true });
 
     const CH = 87.5, NC = Math.ceil(SIZE / CH);
@@ -376,7 +351,7 @@ export class World {
     for (let i = 0; i < chunks.length; i++) {
       const c = chunks[i];
       const cx = -HALF + (i % NC + 0.5) * CH, cz = -HALF + (Math.floor(i / NC) + 0.5) * CH;
-      for (const [type, geo, mat, shadow] of [['con', conGeo, treeMat, true], ['dec', decGeo, treeMat, true], ['rock', rockGeo, rockMat, true]]) {
+      for (const [type, geo, mat, shadow] of [['con', conGeo, TA.conMat, true], ['dec', decGeo, TA.decMat, true], ['rock', rockGeo, rockMat, true]]) {
         const list = c[type]; if (!list.length) continue;
         const im = new THREE.InstancedMesh(geo, mat, list.length);
         list.forEach((it, k) => { im.setMatrixAt(k, it.m); im.setColorAt(k, it.c); });

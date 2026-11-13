@@ -375,7 +375,7 @@ export function buildProps(world, scene) {
     const mesh = new THREE.InstancedMesh(tg, mat, items.length); mesh.castShadow = true; mesh.frustumCulled = false;
     G.add(mesh);
     const glowTex = canvasTexture(64, 64, (ctx) => { const g = ctx.createRadialGradient(32, 32, 0, 32, 32, 32); g.addColorStop(0, 'rgba(255,230,120,0.9)'); g.addColorStop(0.4, 'rgba(255,200,60,0.35)'); g.addColorStop(1, 'rgba(255,200,60,0)'); ctx.fillStyle = g; ctx.fillRect(0, 0, 64, 64); });
-    const glows = items.map((it) => { const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending })); s.scale.set(2.2, 2.2, 1); s.position.set(it.x, it.y, it.z); G.add(s); return s; });
+    const glows = items.map((it) => { const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending })); s.scale.set(1.5, 1.5, 1); s.position.set(it.x, it.y, it.z); G.add(s); return s; });
     const m = new THREE.Matrix4(), q = new THREE.Quaternion(), sc = new THREE.Vector3(), p = new THREE.Vector3(), up = new THREE.Vector3(0, 1, 0);
     P.horseshoes = {
       items, mesh, glows,

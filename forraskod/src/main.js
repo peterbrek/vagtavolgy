@@ -6,6 +6,7 @@ import { Horse, COATS, SADDLES, PALETTE } from './horse.js';
 import { Rider, HAIR } from './rider.js';
 import { Sound } from './audio.js';
 import { DynTube, canvasTexture } from './geom.js';
+import { Post } from './post.js';
 import { clamp, lerp, smoothstep, damp, dampAngle, wrapAngle } from './noise.js';
 
 const $ = (id) => document.getElementById(id);
@@ -49,7 +50,7 @@ const R = {
 const input = { jx: 0, jy: 0, m: 0, gallop: false, jump: false, keys: {} };
 const cam = { yaw: Math.PI, pitch: 0.3, dist: 6, target: new THREE.Vector3(TIE.x, 1.3, TIE.z), user: 9, shake: 0 };
 
-let renderer, scene, camera, world, props, grass, horse, rider, sound, sun, hemi, mapCanvas, arrow, reins = [];
+let post, renderer, scene, camera, world, props, grass, horse, rider, sound, sun, hemi, mapCanvas, arrow, reins = [];
 let parts = {}, time = 0, hudT = 0, saveT = 0, birdT = 5, autoQ = { t: 0, n: 0, acc: 0 }, pixelRatio = 1;
 const tmpV = new THREE.Vector3(), tmpV2 = new THREE.Vector3(), tmpV3 = new THREE.Vector3();
 
@@ -102,8 +103,15 @@ function init() {
   world = new World(scene, q);
   scene.fog = new THREE.Fog(world.horizon, 90, 480);
   scene.background = world.horizon;
-  hemi = new THREE.HemisphereLight('#d6e8ff', '#6b7a4a', 1.35); scene.add(hemi);
-  sun = new THREE.DirectionalLight('#fff0d6', 2.7); sun.castShadow = true;
+  hemi = new THREE.HemisphereLight('#d9e9ff', '#6f7d48', 1.15); scene.add(hemi);
+  sun = new THREE.DirectionalLight('#ffe8c4', 3.1); sun.castShadow = true;
+  {
+    // környezeti tükröződés az égboltból (fényes szőr, bőr, fém)
+    const pm = new THREE.PMREMGenerator(renderer); const es = new THREE.Scene();
+    es.add(new THREE.Mesh(new THREE.SphereGeometry(10, 32, 16), world.sky.material.clone()));
+    scene.environment = pm.fromScene(es, 0.04).texture; scene.environmentIntensity = 0.55; pm.dispose();
+  }
+  post = new Post(renderer, scene, camera);
   sun.shadow.bias = -0.0004; sun.shadow.normalBias = 0.03;
   scene.add(sun); scene.add(sun.target);
   props = buildProps(world, scene);
@@ -131,9 +139,9 @@ function init() {
   setupInput();
   setupUI();
   addEventListener('resize', onResize); onResize();
-  window.__vv = { info: () => JSON.stringify(renderer.info.render) + JSON.stringify(renderer.info.memory), R, S: () => S, input, cam, horse, rider, world, props, enterCare, mount, setMode: (m) => (R.mode = m), startNew, sound, placeHorse, closeModal, step: (n, d = 1 / 30, r = true) => { for (let i = 0; i < n; i++) update(d); if (r) renderer.render(scene, camera); }, render: () => renderer.render(scene, camera), camera };
+  window.__vv = { info: () => JSON.stringify(renderer.info.render) + JSON.stringify(renderer.info.memory), R, S: () => S, input, cam, horse, rider, world, props, enterCare, mount, setMode: (m) => (R.mode = m), startNew, sound, placeHorse, closeModal, step: (n, d = 1 / 30, r = true) => { for (let i = 0; i < n; i++) update(d); if (r) post.render(); }, render: () => post.render(), camera, renderer: () => renderer };
   // első kép
-  update(0.016); renderer.render(scene, camera);
+  update(0.016); post.render();
   $('loading').style.opacity = '0'; setTimeout(() => $('loading').classList.add('hide'), 500);
   showTitle();
   requestAnimationFrame(frame);
@@ -144,6 +152,7 @@ function applyQuality(q) {
   pixelRatio = q === 'gyors' ? 1 : q === 'normal' ? Math.min(dpr, 1.6) : Math.min(dpr, 2.2);
   renderer.setPixelRatio(pixelRatio);
   if (grass) grass.setQuality(q);
+  if (post) post.setQuality(q);
   const ms = q === 'gyors' ? 1024 : 2048;
   if (sun.shadow.mapSize.x !== ms) { sun.shadow.mapSize.set(ms, ms); if (sun.shadow.map) { sun.shadow.map.dispose(); sun.shadow.map = null; } }
   const e = q === 'gyors' ? 22 : 30; const c = sun.shadow.camera; c.left = -e; c.right = e; c.top = e; c.bottom = -e; c.near = 10; c.far = 200; c.updateProjectionMatrix();
@@ -152,6 +161,7 @@ function applyQuality(q) {
 function onResize() {
   if (!renderer) return;
   renderer.setSize(innerWidth, innerHeight, false);
+  if (post) post.resize();
   camera.aspect = innerWidth / innerHeight; camera.fov = innerWidth < innerHeight ? 62 : 55; camera.updateProjectionMatrix();
   const sc = renderer.domElement.height / (2 * Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2));
   for (const k in parts) parts[k].u.uScale.value = sc;
@@ -864,7 +874,7 @@ function frame(now) {
   const raw = (now - last) / 1000; last = now;
   const dt = Math.min(0.05, raw);
   if (window.__freeze) return;
-  if (!document.hidden) { update(R.paused ? 0 : dt); renderer.render(scene, camera); }
+  if (!document.hidden) { update(R.paused ? 0 : dt); post.render(); }
   // automatikus minőségcsökkentés lassú gépen
   autoQ.acc += raw; autoQ.n++;
   if (autoQ.acc > 3) {

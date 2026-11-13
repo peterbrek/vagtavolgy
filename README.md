@@ -11,7 +11,8 @@ Az app egyetlen statikus weboldal. Nincs szükség szerverre, fiókra vagy telep
 - **Ugratás:** 8 akadályos díjugrató pálya időméréssel és hibapontokkal, plusz farönkök, sövények, kőfalak és korlátok az ösvény mentén.
 - **Gondozás az istállónál:** széna, víz, zab, alma, répa, csutakolás (ujjal kell húzni a lovon), patakaparás, simogatás.
 - **Felszerelés:** nyereg, kantár, nyeregalátét, fásli és takaró, többféle színben.
-- **Kinézet:** a ló neve és szőrszíne (pej, sárga, fekete, szürke, palomino, tarka), hóka, fehér zokni, valamint a lovas kabátja, sisakja és haja.
+- **Kinézet:** a ló neve és szőrszíne (pej, sárga, fekete, szürke, almásszürke, palomino, tarka), hóka, fehér zokni, valamint a lovas kabátja, sisakja és haja.
+- **Grafika:** fényes szőr, szálas sörény és farok, levélkártyás lombos fák és fenyők, felhők, ragyogás és színkorrekció.
 - **25 aranypatkó** van elrejtve a völgyben. Darabja 5 érmét ér, az érmékből zabot és csemegét lehet venni.
 
 ## Irányítás
@@ -45,7 +46,7 @@ Hang csak akkor szól, ha a telefon nincs némítva (a némító kapcsoló a web
 
 ## Grafika és sebesség
 
-A menüben (☰ gomb) a **Grafika** beállítás háromállású: *Gyors*, *Normál* és *Szép*. Telefonon a *Normál* az alapértelmezett. Ha a játék akadozik, magától csökkenti a felbontást, szükség esetén *Gyors* módra vált. iPhone 11-től felfelé a *Normál* mód folyamatosan fut.
+A menüben (☰ gomb) a **Grafika** beállítás háromállású: *Gyors*, *Normál* és *Szép*. Telefonon a *Normál* az alapértelmezett. A *Normál* és a *Szép* módban ragyogás, élsimítás és színkorrekció is van, a *Gyors* ezeket kikapcsolja, és kisebb körzetben rajzol füvet. Ha a játék akadozik, magától csökkenti a felbontást, szükség esetén *Gyors* módra vált. iPhone 11-től felfelé a *Normál* mód folyamatosan fut.
 
 ## Mentés
 

@@ -3,12 +3,13 @@ import { loft, limb, shell, GLSL_NOISE } from './geom.js';
 import { clamp, lerp, smoothstep, damp, mulberry32 } from './noise.js';
 
 export const COATS = {
-  pej: { name: 'Pej', base: '#5c2f18', mane: '#16100c', points: '#1a1410' },
+  pej: { name: 'Pej', base: '#4d2815', mane: '#16100c', points: '#1a1410' },
   sarga: { name: 'Sárga', base: '#a1532a', mane: '#7a3716', points: null },
   fekete: { name: 'Fekete', base: '#1e1b1a', mane: '#0d0b0a', points: null },
   szurke: { name: 'Szürke', base: '#dedad2', mane: '#cbc5ba', points: '#a7a198' },
   palomino: { name: 'Palomino', base: '#d1a052', mane: '#f1e7d0', points: null },
   tarka: { name: 'Tarka', base: '#f1ede4', mane: '#3a2a1e', points: null, patch: '#5b3520' },
+  almas: { name: 'Almásszürke', base: '#8f8d8a', mane: '#e4e0d8', points: '#4f4c49', patch: '#dcd9d2', dapple: true },
 };
 export const SADDLES = { barna: '#5a3420', fekete: '#1d1a19', konyak: '#8c4c22' };
 export const PALETTE = {
@@ -28,21 +29,25 @@ export const GAITS = {
   gallop: { speed: 12.5, f: 2.2, duty: 0.27, lift: 0.3, off: [0.57, 0.45, 0.12, 0], bob1: 0.045, bob2: 0, pitch: 0.06, neck1: 0.09, neck2: 0, carriage: 0.24 },
 };
 
-function coatMaterial(dirtBias, extra = {}) {
+function coatMaterial(dirtBias, streak = [55, 28, 12], extra = {}) {
   const u = {
-    uBase: { value: new THREE.Color() }, uPatch: { value: new THREE.Color() }, uPatchAmt: { value: 0 },
+    uBase: { value: new THREE.Color() }, uPatch: { value: new THREE.Color() }, uPatchAmt: { value: 0 }, uDapple: { value: 0 },
+    uStreak: { value: new THREE.Vector3(...streak) },
     uDirt: { value: 0 }, uDirtBias: { value: dirtBias }, uBlaze: { value: 0 }, uSock: { value: 0 }, uSockY: { value: -1 },
     uFace: { value: new THREE.Vector3(0, 1, 0) }, uFaceD: { value: new THREE.Vector3(0, 0, 1) }, uSeed: { value: Math.random() * 10 },
   };
-  const m = new THREE.MeshStandardMaterial({ roughness: 0.58, metalness: 0.0, ...extra });
+  const m = new THREE.MeshPhysicalMaterial({ roughness: 0.52, metalness: 0.0, clearcoat: 0.25, clearcoatRoughness: 0.38, sheen: 0.55, sheenRoughness: 0.45, sheenColor: new THREE.Color('#ffffff'), envMapIntensity: 0.9, ...extra });
   m.onBeforeCompile = (sh) => {
     Object.assign(sh.uniforms, u);
     sh.vertexShader = 'varying vec3 vObj;\n' + sh.vertexShader.replace('#include <begin_vertex>', '#include <begin_vertex>\n vObj = position;');
-    sh.fragmentShader = `varying vec3 vObj; uniform vec3 uBase, uPatch, uFace, uFaceD; uniform float uPatchAmt, uDirt, uDirtBias, uBlaze, uSock, uSockY, uSeed;\n${GLSL_NOISE}\n` +
+    sh.fragmentShader = `varying vec3 vObj; uniform vec3 uBase, uPatch, uFace, uFaceD, uStreak; uniform float uPatchAmt, uDapple, uDirt, uDirtBias, uBlaze, uSock, uSockY, uSeed;\n${GLSL_NOISE}\n` +
       sh.fragmentShader.replace('vec4 diffuseColor = vec4( diffuse, opacity );', `
         vec3 c = uBase;
         float dn = vnoise(vObj*5.0 + uSeed);
         c *= 0.9 + 0.17*dn + 0.05*vnoise(vObj*23.0);
+        c *= 0.93 + 0.1*vnoise(vObj*uStreak + 7.0);
+        if (uDapple > 0.5) { float w = worley(vObj*17.0 + 3.0); float dp = smoothstep(0.62, 0.3, w); float big = smoothstep(0.35, 0.65, vnoise(vObj*2.5 + 9.0));
+          c = mix(c, uPatch, clamp(dp*0.85 + big*0.35, 0.0, 1.0)); }
         if (uPatchAmt > 0.5) { float pn = vnoise(vObj*2.1 + 13.0)*0.72 + vnoise(vObj*6.5 + 3.0)*0.28; c = mix(c, uPatch, smoothstep(0.52, 0.57, pn)); }
         if (uBlaze > 0.5) { float fd = dot(vObj, uFace); float al = dot(vObj, uFaceD);
           float wdt = mix(0.055, 0.03, smoothstep(0.1, 0.35, al)) + 0.012*smoothstep(0.45, 0.7, al);
@@ -53,7 +58,7 @@ function coatMaterial(dirtBias, extra = {}) {
         float th = 1.0 - uDirt*(0.72 + uDirtBias) + clamp(vObj.y, -0.6, 0.5)*0.7;
         float dm = smoothstep(th, th + 0.12, dd) * step(0.02, uDirt);
         vec3 dust = mix(vec3(0.19, 0.15, 0.10), vec3(0.09, 0.06, 0.035), clamp(uDirtBias*1.3, 0.0, 1.0));
-        c = mix(c, dust, dm*(0.55 + uDirtBias*0.4));
+        c = mix(c, dust, dm*(0.32 + uDirtBias*0.5));
         vec4 diffuseColor = vec4(c, opacity);`);
   };
   m.userData.u = u;
@@ -67,12 +72,14 @@ export class Horse {
     this.root = new THREE.Group(); this.root.rotation.order = 'YXZ';
     this.body = new THREE.Group(); this.body.position.y = BODY_Y; this.root.add(this.body);
     this.mats = {
-      body: coatMaterial(0.0), head: coatMaterial(0.0), legU: coatMaterial(0.25),
-      lowF: coatMaterial(0.55), lowH: coatMaterial(0.55), past: coatMaterial(0.75),
+      body: coatMaterial(0.0), head: coatMaterial(0.0, [40, 34, 34]), legU: coatMaterial(0.25, [55, 12, 55]),
+      lowF: coatMaterial(0.55, [60, 10, 60]), lowH: coatMaterial(0.55, [60, 10, 60]), past: coatMaterial(0.75, [60, 10, 60]),
     };
     this.mats.lowF.userData.u.uSockY.value = -0.17; this.mats.lowH.userData.u.uSockY.value = -0.25; this.mats.past.userData.u.uSockY.value = 1;
-    this.maneMat = new THREE.MeshStandardMaterial({ color: '#111', roughness: 0.85, side: THREE.DoubleSide });
-    this.hoofMat = lam('#2b2520', { roughness: 0.5 });
+    this.maneMat = new THREE.MeshStandardMaterial({ color: '#111', roughness: 0.7, side: THREE.DoubleSide });
+    this.hairTex = hairTexture();
+    this.hairMat = new THREE.MeshStandardMaterial({ color: '#111', map: this.hairTex, alphaTest: 0.38, side: THREE.DoubleSide, roughness: 0.55, envMapIntensity: 1.2 });
+    this.hoofMat = new THREE.MeshPhysicalMaterial({ color: '#2b2520', roughness: 0.35, clearcoat: 0.6, clearcoatRoughness: 0.3 });
     this.meshes = [];
     const add = (parent, geo, mat, shadow = true) => { const m = new THREE.Mesh(geo, mat); m.castShadow = shadow; m.receiveShadow = true; parent.add(m); this.meshes.push(m); return m; };
     this._add = add;
@@ -80,7 +87,14 @@ export class Horse {
     // ---- törzs ----
     const T = [[-0.845, 1.28, 0.03, 0.03], [-0.80, 1.31, 0.15, 0.2], [-0.72, 1.335, 0.235, 0.27], [-0.58, 1.315, 0.272, 0.3], [-0.38, 1.275, 0.282, 0.315],
       [-0.10, 1.25, 0.296, 0.325], [0.20, 1.258, 0.287, 0.33], [0.45, 1.28, 0.252, 0.322], [0.62, 1.262, 0.216, 0.29], [0.76, 1.222, 0.17, 0.22], [0.835, 1.18, 0.06, 0.08]];
-    this.torsoGeo = loft(T.map(([z, y, rx, ry]) => ({ p: [0, y - BODY_Y, z], rx, ry })), { radial: 24, sub: 4, power: 2.15 });
+    this.torsoGeo = loft(T.map(([z, y, rx, ry]) => ({ p: [0, y - BODY_Y, z], rx, ry })), { radial: 28, sub: 5, power: 2.15 });
+    sculpt(this.torsoGeo, [
+      // x, y, z, rx, ry, rz, mélység (a test koordinátáiban, x tükrözve)
+      [0.2, 0.17, 0.4, 0.1, 0.17, 0.13, 0.022], [0.2, -0.08, 0.43, 0.1, 0.12, 0.11, 0.026], [0.1, -0.1, 0.66, 0.08, 0.11, 0.08, 0.02],
+      [0.21, 0.12, -0.55, 0.14, 0.19, 0.17, 0.03], [0.16, -0.06, -0.74, 0.1, 0.14, 0.08, 0.022], [0.0, 0.37, -0.56, 0.1, 0.06, 0.2, 0.012],
+      [0.0, 0.39, 0.4, 0.05, 0.06, 0.12, 0.022], [0.27, 0.02, -0.3, 0.06, 0.1, 0.08, -0.014], [0.0, -0.33, 0.0, 0.16, 0.06, 0.32, 0.015],
+      [0.25, 0.05, 0.12, 0.06, 0.18, 0.2, 0.008],
+    ]);
     add(this.body, this.torsoGeo, this.mats.body);
     this.torsoSmp = this.torsoGeo.userData.samples;
 
@@ -108,9 +122,10 @@ export class Horse {
     this.mats.head.userData.u.uFace.value.copy(U); this.mats.head.userData.u.uFaceD.value.copy(D);
     this.headPt = (s, v, side, out = 1.0) => { const r = this.headRing(s); return r.c.clone().addScaledVector(U, r.ry * v * out).add(new THREE.Vector3(-side * r.rx * Math.sqrt(Math.max(0, 1 - v * v)) * out, 0, 0)); };
     // szem, orrlyuk
-    const eyeM = new THREE.MeshStandardMaterial({ color: '#0d0907', roughness: 0.12 });
+    const eyeM = new THREE.MeshPhysicalMaterial({ color: '#120a06', roughness: 0.1, clearcoat: 1, clearcoatRoughness: 0.05, envMapIntensity: 1.6 });
     for (const s of [-1, 1]) {
-      const e = add(this.head, new THREE.SphereGeometry(0.027, 12, 10), eyeM, false); e.scale.set(0.8, 1, 1.15); e.position.copy(this.headPt(0.25, 0.58, s, 0.92));
+      const e = add(this.head, new THREE.SphereGeometry(0.03, 14, 12), eyeM, false); e.scale.set(0.75, 0.95, 1.2); e.position.copy(this.headPt(0.25, 0.58, s, 0.9));
+      const lid = add(this.head, new THREE.TorusGeometry(0.03, 0.007, 6, 16), this.mats.head, false); lid.position.copy(e.position); lid.rotation.y = Math.PI / 2 + s * 0.25; lid.scale.set(1, 0.95, 1.2);
       const n = add(this.head, new THREE.SphereGeometry(0.019, 8, 6), eyeM, false); n.scale.set(0.7, 1.3, 0.8); n.position.copy(this.headPt(0.92, 0.25, s, 0.9));
     }
     // fülek
@@ -139,7 +154,26 @@ export class Horse {
       for (const [L, prof, rest, mat] of segs) {
         const g = first ? parent : new THREE.Group();
         if (!first) { g.position.y = -this.tail[this.tail.length - 1].L * 0.92; this.tail[this.tail.length - 1].g.add(g); }
-        add(g, limb(L, prof.map(([t, a, b]) => [t, a, b, 0]), 10), mat);
+        const isHair = mat === this.maneMat, k = isHair ? 0.55 : 1;
+        add(g, limb(L, prof.map(([t, a, b]) => [t, a * k, b * k, 0]), 10), mat);
+        // szőrkártyák a tengely körül
+        {
+          const C = new Cards(), idx = this.tail.length, K = 6;
+          const rad = (t) => { let i = 0; while (i < prof.length - 2 && prof[i + 1][0] < t) i++; const a = prof[i], b = prof[i + 1]; return lerp(a[1], b[1], clamp((t - a[0]) / (b[0] - a[0]), 0, 1)); };
+          for (let c = 0; c < K; c++) {
+            const an = (c / K) * Math.PI + (idx % 2) * 0.25; const dir = new THREE.Vector3(Math.cos(an), 0, Math.sin(an)), nd = dir.clone().negate();
+            const rows = [];
+            for (let q = 0; q <= 3; q++) {
+              const tt = q / 3, y = 0.03 - tt * L * 1.15;
+              const hw = isHair ? rad(tt) * 1.75 + 0.012 : 0.03 + tt * 0.03;
+              const ctr = new THREE.Vector3(0, y, 0);
+              const v = idx === 0 ? 1 - tt * 0.08 : 0.92 - ((idx - 1) + tt) / 4 * 0.9;
+              rows.push({ l: ctr.clone().addScaledVector(dir, hw), r: ctr.clone().addScaledVector(dir, -hw), nl: dir, nr: nd, ul: 0.05 + c * 0.07, ur: 0.55 + c * 0.07, v, w: 0 });
+            }
+            C.strip(rows);
+          }
+          const tc = new THREE.Mesh(C.geo(), this.hairMat); tc.castShadow = true; g.add(tc);
+        }
         g.rotation.x = rest; this.tail.push({ g, L, rest });
         first = false;
       }
@@ -216,6 +250,25 @@ export class Horse {
     g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setIndex(idx); g.computeVertexNormals();
     this.maneGeo = g;
     const m = new THREE.Mesh(g, this.maneMat); m.castShadow = true; this.neck.add(m);
+    // szálas sörény
+    const C = new Cards(), r = mulberry32(12), down = new THREE.Vector3(0, -1, 0);
+    for (let i = i0; i <= i1; i++) for (let layer = 0; layer < 3; layer++) {
+      const sm = smp[i], t = (i - i0) / (cols - 1);
+      const crest = sm.p.clone().addScaledVector(sm.U, sm.ry * 0.96);
+      const L = lerp(0.12, 0.24, Math.sin(t * Math.PI * 0.9 + 0.2)) * (0.75 + r() * 0.45) * (layer === 2 ? 0.6 : 1);
+      const nrm = sm.S.clone().multiplyScalar(0.75).addScaledVector(sm.U, 0.55).normalize();
+      const u0 = r() * 0.5, rows = [];
+      for (let k = 0; k <= 3; k++) {
+        const tt = k / 3;
+        const c = crest.clone().addScaledVector(sm.U, 0.022 * (1 - tt) + layer * 0.006).addScaledVector(sm.S, 0.01 + (0.07 + layer * 0.012) * tt + (layer === 2 ? -0.03 : 0))
+          .addScaledVector(down, L * tt).addScaledVector(sm.T, -0.035 * tt + (r() - 0.5) * 0.01);
+        const w = 0.06 * (1 - 0.3 * tt);
+        rows.push({ l: c.clone().addScaledVector(sm.T, -w / 2), r: c.clone().addScaledVector(sm.T, w / 2), nl: nrm, nr: nrm, ul: u0, ur: u0 + 0.5, v: 1 - tt * 0.98, w: tt });
+      }
+      C.strip(rows);
+    }
+    this.maneCards = C.geo(); this.maneCardBase = this.maneCards.attributes.position.array.slice(); this.maneCardW = C.w;
+    const mc = new THREE.Mesh(this.maneCards, this.hairMat); mc.castShadow = true; this.neck.add(mc);
     // üstök
     const D = this.headD, U = this.headU;
     const fp = (t, o) => D.clone().multiplyScalar(t).addScaledVector(U, o).toArray();
@@ -226,6 +279,19 @@ export class Horse {
       { p: fp(0.22, 0.016), rx: 0.012, ry: 0.006 },
     ], { up: [0, 1, 0], radial: 10, sub: 3 });
     const fm = new THREE.Mesh(fl, this.maneMat); this.head.add(fm);
+    {
+      const C = new Cards(), S = new THREE.Vector3(1, 0, 0);
+      for (const [off, len] of [[-0.022, 0.2], [0.0, 0.25], [0.022, 0.19]]) {
+        const rows = [];
+        for (let k = 0; k <= 3; k++) {
+          const tt = k / 3, c = D.clone().multiplyScalar(-0.03 + len * tt).addScaledVector(U, 0.03 - 0.008 * tt).addScaledVector(S, off * (1 + tt));
+          const w = 0.05 * (1 - 0.4 * tt);
+          rows.push({ l: c.clone().addScaledVector(S, -w / 2), r: c.clone().addScaledVector(S, w / 2), nl: U, nr: U, ul: 0.1, ur: 0.6, v: 1 - tt * 0.97, w: tt });
+        }
+        C.strip(rows);
+      }
+      this.head.add(new THREE.Mesh(C.geo(), this.hairMat));
+    }
   }
 
   buildTack() {
@@ -234,11 +300,11 @@ export class Horse {
     const P2 = Math.PI / 2;
     this.tack = {};
     const T = this.tack;
-    const sm = (c) => new THREE.MeshStandardMaterial({ color: c, roughness: 0.55, side: THREE.DoubleSide });
+    const sm = (c) => new THREE.MeshPhysicalMaterial({ color: c, roughness: 0.45, clearcoat: 0.35, clearcoatRoughness: 0.35, side: THREE.DoubleSide });
     // alátét
     T.padMat = new THREE.MeshStandardMaterial({ color: '#fff', roughness: 0.9, side: THREE.DoubleSide });
     T.pad = new THREE.Group(); this.body.add(T.pad);
-    const padGeo = shell(smp, findI(-0.26), findI(0.44), P2 - 1.3, P2 + 1.3, (u, v) => 0.008 + 0.012 * Math.pow(Math.sin(Math.PI * u), 0.3) * Math.pow(Math.sin(Math.PI * v), 0.3), { cols: 22 });
+    const padGeo = shell(smp, findI(-0.26), findI(0.44), P2 - 1.3, P2 + 1.3, (u, v) => 0.01 + 0.014 * Math.pow(Math.sin(Math.PI * u), 0.3) * Math.pow(Math.sin(Math.PI * v), 0.3) + 0.028 * smoothstep(0.72, 1, u), { cols: 22 });
     const pm = new THREE.Mesh(padGeo, T.padMat); pm.castShadow = true; T.pad.add(pm);
     // nyereg
     T.saddleMat = sm('#5a3420');
@@ -306,11 +372,11 @@ export class Horse {
     // takaró
     T.blanketMat = new THREE.MeshStandardMaterial({ color: '#2f63d6', roughness: 0.85, side: THREE.DoubleSide });
     T.blanket = new THREE.Group(); this.body.add(T.blanket);
-    const bl = shell(smp, findI(-0.8), findI(0.62), P2 - 1.62, P2 + 1.62, (u, v) => 0.025 + 0.01 * Math.sin(Math.PI * v), { cols: 26 });
+    const bl = shell(smp, findI(-0.8), findI(0.62), P2 - 1.62, P2 + 1.62, (u, v) => 0.038 + 0.012 * Math.sin(Math.PI * v), { cols: 26 });
     T.blanket.add(new THREE.Mesh(bl, T.blanketMat));
     T.blanket.children[0].castShadow = true;
-    const trim = shell(smp, findI(-0.8), findI(0.62), P2 - 1.66, P2 - 1.5, () => 0.03, { cols: 2 });
-    const trim2 = shell(smp, findI(-0.8), findI(0.62), P2 + 1.5, P2 + 1.66, () => 0.03, { cols: 2 });
+    const trim = shell(smp, findI(-0.8), findI(0.62), P2 - 1.66, P2 - 1.5, () => 0.044, { cols: 2 });
+    const trim2 = shell(smp, findI(-0.8), findI(0.62), P2 + 1.5, P2 + 1.66, () => 0.044, { cols: 2 });
     T.trimMat = new THREE.MeshStandardMaterial({ color: '#f4f2ec', roughness: 0.8, side: THREE.DoubleSide });
     T.blanket.add(new THREE.Mesh(trim, T.trimMat)); T.blanket.add(new THREE.Mesh(trim2, T.trimMat));
   }
@@ -321,13 +387,15 @@ export class Horse {
       const u = this.mats[k].userData.u;
       const pts = (k === 'lowF' || k === 'lowH' || k === 'past') && c.points;
       u.uBase.value.set(pts ? c.points : c.base);
-      u.uPatchAmt.value = c.patch ? 1 : 0; if (c.patch) u.uPatch.value.set(c.patch);
+      u.uPatchAmt.value = c.patch && !c.dapple ? 1 : 0; if (c.patch) u.uPatch.value.set(c.patch);
+      u.uDapple.value = c.dapple && !(k === 'lowF' || k === 'lowH' || k === 'past') ? 1 : 0;
+      this.mats[k].sheenColor.set(pts ? c.points : c.base).lerp(new THREE.Color('#ffffff'), 0.55);
       u.uSock.value = socks && (k === 'lowF' || k === 'lowH' || k === 'past') ? 1 : 0;
     }
     this.mats.head.userData.u.uBlaze.value = blaze ? 1 : 0;
-    this.maneMat.color.set(c.mane);
+    this.maneMat.color.set(c.mane).multiplyScalar(0.8); this.hairMat.color.set(c.mane);
   }
-  setDirt(d) { for (const k in this.mats) this.mats[k].userData.u.uDirt.value = d; }
+  setDirt(d) { for (const k in this.mats) { const m = this.mats[k]; m.userData.u.uDirt.value = d; m.clearcoat = 0.02 + 0.24 * (1 - d); m.sheen = 0.15 + 0.4 * (1 - d); m.roughness = 0.5 + d * 0.25; } }
 
   setTack(t) {
     const T = this.tack;
@@ -442,6 +510,13 @@ export class Horse {
         pa.setXYZ(i + 1, b.x + fl, b.y + wind * 0.06, b.z - wind * 0.09 + fl);
       }
       pa.needsUpdate = true;
+      const ca = this.maneCards.attributes.position, cb = this.maneCardBase, cw = this.maneCardW;
+      for (let i = 0; i < cw.length; i++) {
+        const w = cw[i], w2 = w * w, ph = this.time * (5 + v * 0.8) + i * 0.37;
+        const fl = Math.sin(ph) * 0.018 * (0.3 + wind) * w;
+        ca.array[i * 3] = cb[i * 3] + fl; ca.array[i * 3 + 1] = cb[i * 3 + 1] + wind * 0.07 * w2; ca.array[i * 3 + 2] = cb[i * 3 + 2] - wind * 0.11 * w2 + fl * 0.5;
+      }
+      ca.needsUpdate = true;
     }
 
     // lábak
@@ -501,4 +576,53 @@ function keyInterp(keys, t) {
     if (t <= b[0]) { const u = (t - a[0]) / (b[0] - a[0]); const s = u * u * (3 - 2 * u); return a[1] + (b[1] - a[1]) * s; }
   }
   return keys[keys.length - 1][1];
+}
+
+// Gauss-dudorok a test felszínén (izmok), a normális mentén
+function sculpt(g, bumps) {
+  const p = g.attributes.position, n = g.attributes.normal;
+  for (let i = 0; i < p.count; i++) {
+    const x = p.getX(i), y = p.getY(i), z = p.getZ(i);
+    let d = 0;
+    for (const [bx, by, bz, rx, ry, rz, a] of bumps) {
+      const dx = (Math.abs(x) - bx) / rx, dy = (y - by) / ry, dz = (z - bz) / rz;
+      d += a * Math.exp(-(dx * dx + dy * dy + dz * dz));
+    }
+    p.setXYZ(i, x + n.getX(i) * d, y + n.getY(i) * d, z + n.getZ(i) * d);
+  }
+  g.computeVertexNormals();
+}
+
+// szálas szőrtextúra a sörényhez és a farokhoz (átlátszó háttér)
+function hairTexture() {
+  const c = document.createElement('canvas'); c.width = 64; c.height = 256; const x = c.getContext('2d');
+  const r = mulberry32(31);
+  for (let i = 0; i < 120; i++) {
+    const sx = r() * 64, len = 256 * (0.5 + r() * 0.5), w = 0.7 + r() * 1.7, a = 0.55 + r() * 0.45, sh = 175 + Math.floor(r() * 80);
+    const g = x.createLinearGradient(0, 0, 0, len);
+    g.addColorStop(0, `rgba(${sh},${sh},${sh},${a})`); g.addColorStop(0.75, `rgba(${sh},${sh},${sh},${a * 0.9})`); g.addColorStop(1, `rgba(${sh},${sh},${sh},0)`);
+    x.strokeStyle = g; x.lineWidth = w; x.beginPath(); x.moveTo(sx, 0);
+    x.quadraticCurveTo(sx + (r() - 0.5) * 16, len * 0.5, sx + (r() - 0.5) * 12, len); x.stroke();
+  }
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4;
+  return t;
+}
+
+// kártyák (négyszögcsíkok) gyűjtője: sorok bal/jobb pontokkal
+class Cards {
+  constructor() { this.pos = []; this.nor = []; this.uv = []; this.idx = []; this.w = []; }
+  strip(rows) { // rows: [{l, r, nl, nr, ul, ur, v, w}]
+    const b = this.pos.length / 3;
+    rows.forEach((q, k) => {
+      this.pos.push(q.l.x, q.l.y, q.l.z, q.r.x, q.r.y, q.r.z);
+      this.nor.push(q.nl.x, q.nl.y, q.nl.z, q.nr.x, q.nr.y, q.nr.z);
+      this.uv.push(q.ul, q.v, q.ur, q.v); this.w.push(q.w, q.w);
+      if (k > 0) { const a = b + (k - 1) * 2; this.idx.push(a, a + 2, a + 1, a + 1, a + 2, a + 3); }
+    });
+  }
+  geo() {
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(this.pos, 3)); g.setAttribute('normal', new THREE.Float32BufferAttribute(this.nor, 3));
+    g.setAttribute('uv', new THREE.Float32BufferAttribute(this.uv, 2)); g.setIndex(this.idx); return g;
+  }
 }

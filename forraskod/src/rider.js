@@ -27,8 +27,10 @@ export class Rider {
     this.horse = horse;
     this.root = new THREE.Group(); this.root.position.copy(SEAT); horse.body.add(this.root);
     this.m = {
-      skin: std('#f0c6a2', 0.6), jacket: std('#1f2f5c', 0.6), breeches: std('#f2efe6', 0.8), boots: std('#17140f', 0.35),
-      helmet: std('#1d1d22', 0.3), hair: std('#5b3a22', 0.8), glove: std('#2a2420', 0.6), dark: std('#0c0a09', 0.2),
+      skin: std('#f0c6a2', 0.6), jacket: std('#1f2f5c', 0.55), breeches: std('#f2efe6', 0.8),
+      boots: new THREE.MeshPhysicalMaterial({ color: '#17140f', roughness: 0.3, clearcoat: 0.8, clearcoatRoughness: 0.15 }),
+      helmet: new THREE.MeshPhysicalMaterial({ color: '#1d1d22', roughness: 0.35, clearcoat: 0.9, clearcoatRoughness: 0.12 }),
+      hair: std('#5b3a22', 0.6), glove: std('#2a2420', 0.6), dark: std('#0c0a09', 0.2), white: std('#f7f5f0', 0.7),
     };
     const M = this.m;
     this.pelvis = new THREE.Group(); this.root.add(this.pelvis);
@@ -36,6 +38,7 @@ export class Rider {
     this.torso = new THREE.Group(); this.torso.position.set(0, 0.05, -0.02); this.pelvis.add(this.torso);
     cap(0.125, 0.28, M.jacket, this.torso, { sx: 1.18, sz: 0.82, y: 0.19 });
     { const c = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.045, 0.1, 10), M.skin); c.position.y = 0.43; this.torso.add(c); }
+    { const col = new THREE.Mesh(new THREE.CylinderGeometry(0.052, 0.07, 0.06, 14, 1, true), M.white); col.position.y = 0.415; this.torso.add(col); }
     // fej
     this.head = new THREE.Group(); this.head.position.set(0, 0.47, 0); this.torso.add(this.head);
     { const h = new THREE.Mesh(new THREE.SphereGeometry(0.092, 16, 12), M.skin); h.position.y = 0.075; h.scale.set(0.95, 1.05, 1); h.castShadow = true; this.head.add(h); }
@@ -43,9 +46,26 @@ export class Rider {
       const vis = new THREE.Mesh(new THREE.SphereGeometry(0.11, 14, 6, -0.9, 1.8, Math.PI * 0.45, Math.PI * 0.1), M.helmet); vis.position.set(0, 0.085, 0.012); vis.scale.set(1, 1, 1.15); this.head.add(vis);
       const strapL = new THREE.Mesh(new THREE.BoxGeometry(0.008, 0.11, 0.012), M.dark); strapL.position.set(0.085, 0.03, 0.02); this.head.add(strapL);
       const strapR = strapL.clone(); strapR.position.x = -0.085; this.head.add(strapR); }
-    for (const s of [-1, 1]) { const e = new THREE.Mesh(new THREE.SphereGeometry(0.011, 6, 5), M.dark); e.position.set(s * 0.032, 0.085, 0.084); this.head.add(e); }
+    for (const s of [-1, 1]) {
+      const w = new THREE.Mesh(new THREE.SphereGeometry(0.014, 8, 6), M.white); w.scale.set(1, 0.8, 0.5); w.position.set(s * 0.033, 0.083, 0.083); this.head.add(w);
+      const e = new THREE.Mesh(new THREE.SphereGeometry(0.009, 8, 6), M.dark); e.position.set(s * 0.033, 0.083, 0.09); this.head.add(e);
+      const br = new THREE.Mesh(new THREE.BoxGeometry(0.026, 0.005, 0.006), M.hair); br.position.set(s * 0.034, 0.104, 0.088); br.rotation.z = -s * 0.15; this.head.add(br);
+    }
+    { const n = new THREE.Mesh(new THREE.SphereGeometry(0.012, 8, 6), M.skin); n.scale.set(0.8, 1, 1); n.position.set(0, 0.063, 0.093); this.head.add(n); }
     this.pony = new THREE.Group(); this.pony.position.set(0, 0.06, -0.1); this.head.add(this.pony);
-    cap(0.032, 0.2, M.hair, this.pony, { sx: 1.2 });
+    cap(0.026, 0.18, M.hair, this.pony, { sx: 1.2 });
+    {
+      const tex = horse.hairTex; const hm = new THREE.MeshStandardMaterial({ map: tex, alphaTest: 0.38, side: THREE.DoubleSide, roughness: 0.5 });
+      this.hairCardMat = hm; const pos = [], uv = [], nor = [], idx = [];
+      for (let k = 0; k < 4; k++) {
+        const a = (k / 4) * Math.PI, dx = Math.cos(a), dz = Math.sin(a), b = pos.length / 3;
+        for (let q = 0; q <= 3; q++) { const t = q / 3, y = 0.02 - t * 0.26, w = 0.035 + Math.sin(t * Math.PI) * 0.02;
+          pos.push(dx * w, y, dz * w, -dx * w, y, -dz * w); nor.push(dx, 0, dz, -dx, 0, -dz); uv.push(0.1, 1 - t, 0.6, 1 - t);
+          if (q) { const o = b + (q - 1) * 2; idx.push(o, o + 2, o + 1, o + 1, o + 2, o + 3); } }
+      }
+      const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3)); g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2)); g.setIndex(idx);
+      const m = new THREE.Mesh(g, hm); m.castShadow = true; this.pony.add(m);
+    }
     { const b = new THREE.Mesh(new THREE.SphereGeometry(0.045, 10, 8), M.hair); b.position.set(0, 0.0, 0.0); this.pony.add(b); }
     { const hh = new THREE.Mesh(new THREE.SphereGeometry(0.096, 14, 10, 0, Math.PI * 2, Math.PI * 0.45, Math.PI * 0.3), M.hair); hh.position.set(0, 0.075, -0.012); this.head.add(hh); }
     // karok
@@ -76,7 +96,7 @@ export class Rider {
   setLook({ jacket, helmet, hair }) {
     if (jacket) this.m.jacket.color.set(jacket);
     if (helmet) this.m.helmet.color.set(helmet);
-    if (hair) this.m.hair.color.set(HAIR[hair] || hair);
+    if (hair) { this.m.hair.color.set(HAIR[hair] || hair); if (this.hairCardMat) this.hairCardMat.color.set(HAIR[hair] || hair); }
   }
 
   update(dt, st) {
