@@ -1,0 +1,17 @@
+{
+  "name": "Vágtavölgy",
+  "short_name": "Vágtavölgy",
+  "description": "3D lovas kalandjáték: lovaglás, ugratás, gondozás.",
+  "lang": "hu",
+  "start_url": "./",
+  "scope": "./",
+  "display": "fullscreen",
+  "orientation": "any",
+  "background_color": "#9fc2dd",
+  "theme_color": "#2e5b8f",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

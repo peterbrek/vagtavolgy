@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="hu">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Vágtavölgy">
+<meta name="theme-color" content="#2e5b8f">
+<title>Vágtavölgy</title>
+<!--PWA-->
+<style>
+:root{--acc:#e8702a;--acc2:#2e5b8f;--ink:#2a2733;--pan:rgba(255,253,248,.86);--sat:env(safe-area-inset-top,0px);--sab:env(safe-area-inset-bottom,0px);--sal:env(safe-area-inset-left,0px);--sar:env(safe-area-inset-right,0px)}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
+html,body{margin:0;height:100%;overflow:hidden;background:#9fc2dd;font-family:ui-rounded,"SF Pro Rounded",system-ui,-apple-system,"Segoe UI",sans-serif;color:var(--ink);overscroll-behavior:none}
+canvas#c{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none}
+.hide{display:none!important}
+button{font:inherit;color:inherit;border:0;cursor:pointer;touch-action:manipulation}
+.panel{background:var(--pan);border-radius:16px;box-shadow:0 4px 18px rgba(30,40,60,.18);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px)}
+#loading{position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:18px;background:linear-gradient(#7fb2dc,#cfe6c6);z-index:50;transition:opacity .5s}
+.logo{font-weight:900;font-size:clamp(40px,10vw,72px);color:#fff;letter-spacing:.5px;text-shadow:0 3px 0 #2e5b8f,0 6px 18px rgba(0,0,0,.25)}
+.spin{width:44px;height:44px;border-radius:50%;border:5px solid rgba(255,255,255,.4);border-top-color:#fff;animation:sp 1s linear infinite}
+@keyframes sp{to{transform:rotate(360deg)}}
+#loadtxt{color:#fff;font-weight:700;text-shadow:0 1px 3px rgba(0,0,0,.3)}
+/* HUD */
+#hud{position:fixed;inset:0;pointer-events:none;z-index:10}
+#hud>*{pointer-events:auto}
+#tl{position:absolute;left:calc(10px + var(--sal));top:calc(10px + var(--sat));padding:8px 12px 10px;min-width:150px}
+#hname{font-weight:800;font-size:15px;margin-bottom:5px;display:flex;align-items:center;gap:6px}
+.bars{display:grid;grid-template-columns:auto 1fr;gap:3px 6px;align-items:center;font-size:12px}
+.bar b{display:block;height:7px;border-radius:5px;background:rgba(0,0,0,.12);overflow:hidden;min-width:80px}
+.bar b s{display:block;height:100%;width:50%;border-radius:5px;background:#5bb85c;transition:width .4s}
+.bar.low b s{background:#e0533d}
+#coins{position:absolute;left:calc(10px + var(--sal));top:calc(118px + var(--sat));padding:6px 12px;font-weight:800;font-size:14px;display:flex;gap:6px;align-items:center}
+#coins svg{width:18px;height:18px}
+#tr{position:absolute;right:calc(10px + var(--sar));top:calc(10px + var(--sat));display:flex;gap:8px;align-items:flex-start}
+#mini{width:116px;height:116px;border-radius:50%;box-shadow:0 4px 14px rgba(0,0,0,.25);border:3px solid #fff;background:#7a9}
+.round{width:46px;height:46px;border-radius:50%;background:var(--pan);box-shadow:0 4px 14px rgba(0,0,0,.2);font-size:22px;font-weight:800}
+#course{position:absolute;left:50%;transform:translateX(-50%);top:calc(10px + var(--sat));padding:8px 14px;font-weight:800;font-size:15px;display:flex;gap:10px;align-items:center;white-space:nowrap}
+#course button{background:#eee;border-radius:50%;width:28px;height:28px;font-size:14px}
+#toast{position:absolute;left:50%;top:calc(64px + var(--sat));transform:translateX(-50%);pointer-events:none;display:flex;flex-direction:column;gap:6px;align-items:center;width:min(90vw,520px)}
+.tst{background:rgba(35,35,48,.86);color:#fff;padding:9px 16px;border-radius:14px;font-weight:700;font-size:15px;text-align:center;animation:tin .25s ease-out;box-shadow:0 4px 14px rgba(0,0,0,.25)}
+.tst.good{background:rgba(46,140,80,.92)}.tst.bad{background:rgba(200,70,50,.92)}.tst.gold{background:linear-gradient(#f4c542,#e39a1f);color:#3a2500}
+@keyframes tin{from{opacity:0;transform:translateY(-8px) scale(.96)}}
+#ctx{position:absolute;left:50%;transform:translateX(-50%);bottom:calc(18px + var(--sab));display:flex;gap:10px}
+@media (orientation:portrait){#ctx{bottom:calc(132px + var(--sab))}}
+.cbtn{background:var(--acc2);color:#fff;font-weight:800;font-size:16px;padding:12px 20px;border-radius:16px;box-shadow:0 5px 0 #1d3d63,0 8px 18px rgba(0,0,0,.25)}
+.cbtn:active{transform:translateY(3px);box-shadow:0 2px 0 #1d3d63}
+#joyzone{position:absolute;left:0;bottom:0;width:48%;height:62%;touch-action:none}
+#joybase{position:absolute;width:132px;height:132px;margin:-66px 0 0 -66px;border-radius:50%;background:radial-gradient(circle,rgba(255,255,255,.12) 0 38%,rgba(255,255,255,.22) 38% 39.5%,rgba(255,255,255,.12) 39.5% 64%,rgba(255,255,255,.25) 64% 65.5%,rgba(255,255,255,.14) 65.5%);border:3px solid rgba(255,255,255,.55);box-shadow:0 4px 18px rgba(0,0,0,.18);left:110px;bottom:auto;top:calc(100% - 120px - var(--sab));pointer-events:none;transition:opacity .2s}
+#joyknob{position:absolute;left:50%;top:50%;width:58px;height:58px;margin:-29px 0 0 -29px;border-radius:50%;background:rgba(255,255,255,.92);box-shadow:0 3px 10px rgba(0,0,0,.3)}
+#joyzone.idle #joybase{opacity:.55}
+#gaitlbl{position:absolute;left:calc(26px + var(--sal));bottom:calc(14px + var(--sab));font-weight:900;font-size:17px;color:#fff;text-shadow:0 1px 4px rgba(0,0,0,.5);pointer-events:none}
+#rbtns{position:absolute;right:calc(14px + var(--sar));bottom:calc(16px + var(--sab));display:grid;grid-template-columns:auto auto;grid-template-rows:auto auto;gap:12px;align-items:end;justify-items:center}
+#rbtns button{border-radius:50%;color:#fff;font-weight:900;box-shadow:0 5px 0 rgba(0,0,0,.25),0 8px 18px rgba(0,0,0,.25);touch-action:none}
+#btnJump{width:92px;height:92px;font-size:18px;background:radial-gradient(circle at 35% 30%,#ff9c55,#e2611d);grid-column:2;grid-row:1/3}
+#btnGallop{width:70px;height:70px;font-size:13px;background:radial-gradient(circle at 35% 30%,#6aa3e8,#2e5b8f);grid-column:1;grid-row:2}
+#btnGallop.on,#btnJump.on{transform:translateY(3px) scale(.96);filter:brightness(1.12)}
+#btnGallop.dis{filter:grayscale(1) brightness(.85)}
+#energy{grid-column:1;grid-row:1;width:70px;text-align:center;font-size:11px;font-weight:800;color:#fff;text-shadow:0 1px 3px rgba(0,0,0,.5)}
+#energy b{display:block;height:8px;border-radius:5px;background:rgba(0,0,0,.25);overflow:hidden;margin-top:2px;border:1px solid rgba(255,255,255,.6)}
+#energy s{display:block;height:100%;background:#ffd34d;width:100%}
+/* gondozás */
+#care{position:fixed;z-index:12;display:flex;flex-direction:column;gap:8px;pointer-events:none}
+#care>*{pointer-events:auto}
+#careSheet{display:flex;flex-direction:column;overflow:hidden;padding:10px 10px 12px}
+@media (orientation:portrait){#care{left:0;right:0;bottom:0;padding:0 8px calc(8px + var(--sab))}#careSheet{max-height:46vh}}
+@media (orientation:landscape){#care{right:calc(8px + var(--sar));top:calc(8px + var(--sat));bottom:calc(8px + var(--sab));width:min(370px,46vw)}#careSheet{flex:1;min-height:0}}
+#careHead{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:2px 4px 8px}
+#careName{font-weight:900;font-size:19px}
+#careCoins{font-weight:800;display:flex;gap:5px;align-items:center}#careCoins svg{width:18px;height:18px}
+.cstats{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-bottom:8px}
+.cstat{font-size:11px;font-weight:700;text-align:center}
+.cstat b{display:block;height:8px;border-radius:5px;background:rgba(0,0,0,.12);overflow:hidden;margin-top:3px}
+.cstat b s{display:block;height:100%;background:#5bb85c;transition:width .4s}
+.cstat.low b s{background:#e0533d}
+.tabs{display:flex;gap:6px;margin-bottom:8px}
+.tabs button{flex:1;padding:9px 4px;border-radius:12px;background:rgba(0,0,0,.06);font-weight:800;font-size:14px}
+.tabs button.on{background:var(--acc2);color:#fff}
+#carePane{overflow-y:auto;-webkit-overflow-scrolling:touch;flex:1;min-height:0;padding:2px}
+.agrid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+@media (orientation:landscape){.agrid{grid-template-columns:repeat(3,1fr)}}
+.act{background:#fff;border-radius:14px;padding:8px 2px 7px;box-shadow:0 2px 6px rgba(0,0,0,.1);display:flex;flex-direction:column;align-items:center;gap:2px;font-size:12px;font-weight:800;line-height:1.1}
+.act i{font-style:normal;font-size:26px;height:30px;display:flex;align-items:center}
+.act i svg{width:28px;height:28px}
+.act small{font-weight:700;color:#8a7a60;font-size:10.5px}
+.act.on{background:#fff3df;outline:3px solid var(--acc)}
+.act:disabled{opacity:.45}
+.opt h4{margin:10px 2px 6px;font-size:13px;color:#555;font-weight:800}
+.chips{display:flex;flex-wrap:wrap;gap:7px}
+.chip{min-width:38px;height:38px;border-radius:19px;padding:0 12px;background:#fff;box-shadow:0 2px 5px rgba(0,0,0,.12);font-weight:800;font-size:13px;display:flex;align-items:center;justify-content:center;gap:6px}
+.chip.sw{padding:0;width:38px}
+.chip.on{outline:3px solid var(--acc);outline-offset:1px}
+.chip .dot{width:26px;height:26px;border-radius:50%;border:2px solid rgba(0,0,0,.12)}
+.namein{width:100%;font:inherit;font-weight:800;font-size:16px;padding:9px 12px;border-radius:12px;border:2px solid #ddd;background:#fff;-webkit-user-select:text;user-select:text}
+#btnMount{font-weight:900;font-size:19px;color:#fff;padding:14px;border-radius:18px;background:linear-gradient(#f08a3e,#e2611d);box-shadow:0 5px 0 #a8460f,0 8px 18px rgba(0,0,0,.25)}
+#btnMount:active{transform:translateY(3px);box-shadow:0 2px 0 #a8460f}
+#tut{padding:10px 12px;font-size:13px;font-weight:700}
+#tut h5{margin:0 0 4px;font-size:14px}
+#tut div{display:flex;gap:6px;align-items:center;padding:2px 0}
+#tut div.ok{color:#2e8a4e;text-decoration:line-through}
+#careHint{position:fixed;left:50%;top:calc(14px + var(--sat));transform:translateX(-50%);z-index:13;background:rgba(35,35,48,.85);color:#fff;font-weight:800;padding:9px 16px;border-radius:14px;pointer-events:none;font-size:14px;white-space:nowrap}
+@media (orientation:landscape){#careHint{left:calc(50% - 190px)}}
+#careBack{position:fixed;left:calc(10px + var(--sal));top:calc(10px + var(--sat));z-index:13}
+#brushCur{position:fixed;width:54px;height:54px;margin:-27px 0 0 -27px;pointer-events:none;z-index:20}
+/* címlap */
+#title{position:fixed;inset:0;z-index:30;display:flex;align-items:center;justify-content:center;padding:calc(12px + var(--sat)) 12px calc(12px + var(--sab));background:linear-gradient(rgba(20,40,70,.05),rgba(20,40,70,.35))}
+@media (orientation:landscape){#title{justify-content:flex-end;padding-right:calc(16px + var(--sar))}#titleBox{width:min(400px,50vw)!important}}
+@media (orientation:portrait){#title{align-items:flex-end}}
+#titleBox{width:min(420px,100%);padding:20px 20px 22px;text-align:center;max-height:100%;overflow-y:auto}
+#titleBox .logo{font-size:clamp(40px,11vw,60px);margin-bottom:2px}
+#titleBox p{margin:0 0 14px;font-weight:700;color:#4b4a57}
+.big{display:block;width:100%;font-weight:900;font-size:19px;color:#fff;padding:14px;border-radius:18px;background:linear-gradient(#f08a3e,#e2611d);box-shadow:0 5px 0 #a8460f,0 8px 18px rgba(0,0,0,.2);margin-top:12px}
+.big.alt{background:linear-gradient(#5e93d6,#2e5b8f);box-shadow:0 5px 0 #1d3d63,0 8px 18px rgba(0,0,0,.2)}
+.big.ghost{background:rgba(0,0,0,.07);color:var(--ink);box-shadow:none;font-size:16px;padding:11px}
+.big:active{transform:translateY(3px)}
+label.l{display:block;text-align:left;font-weight:800;font-size:13px;color:#555;margin:12px 2px 6px}
+/* modális */
+#modal{position:fixed;inset:0;z-index:40;background:rgba(20,25,40,.45);display:flex;align-items:center;justify-content:center;padding:calc(14px + var(--sat)) 14px calc(14px + var(--sab))}
+#modalBox{width:min(440px,100%);max-height:100%;overflow-y:auto;padding:18px 18px 20px;background:#fffdf8;border-radius:20px;box-shadow:0 10px 40px rgba(0,0,0,.3)}
+#modalBox h2{margin:0 0 10px;font-size:22px}
+#modalBox p,#modalBox li{font-weight:600;line-height:1.4;font-size:15px}
+#modalBox ul{padding-left:20px;margin:6px 0}
+.res{display:flex;justify-content:space-around;margin:10px 0;text-align:center}
+.res b{display:block;font-size:28px}
+#bigmap{position:fixed;inset:0;z-index:35;background:rgba(15,25,35,.75);display:flex;align-items:center;justify-content:center;padding:calc(14px + var(--sat)) 14px calc(14px + var(--sab))}
+#bigc{max-width:100%;max-height:100%;border-radius:18px;box-shadow:0 10px 40px rgba(0,0,0,.5);background:#7a9}
+#rot{display:none}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="loading"><div class="logo">Vágtavölgy</div><div class="spin"></div><div id="loadtxt">A világ épül…</div></div>
+
+<div id="hud" class="hide">
+  <div id="tl" class="panel">
+    <div id="hname">Csillag</div>
+    <div class="bars">
+      <span>🌾</span><div class="bar" id="hb_food"><b><s></s></b></div>
+      <span>💧</span><div class="bar" id="hb_water"><b><s></s></b></div>
+      <span>✨</span><div class="bar" id="hb_clean"><b><s></s></b></div>
+      <span>❤️</span><div class="bar" id="hb_mood"><b><s></s></b></div>
+    </div>
+  </div>
+  <div id="coins" class="panel"><span class="ico-coin"></span><span id="coinN">0</span><span style="opacity:.35">|</span><span class="ico-shoe"></span><span id="shoeN">0/25</span></div>
+  <div id="tr"><canvas id="mini" width="232" height="232"></canvas><button id="btnMenu" class="round" aria-label="Menü">☰</button></div>
+  <div id="course" class="panel hide">⏱️ <span id="ctime">0.0</span> <span>Hiba: <span id="cfault">0</span></span> <span id="cnext"></span><button id="cstop" aria-label="Kör vége">✕</button></div>
+  <div id="toast"></div>
+  <div id="ctx"></div>
+  <div id="joyzone" class="idle"><div id="joybase"><div id="joyknob"></div></div></div>
+  <div id="gaitlbl">Áll</div>
+  <div id="rbtns">
+    <div id="energy">Energia<b><s></s></b></div>
+    <button id="btnGallop">Galopp</button>
+    <button id="btnJump">Ugrás</button>
+  </div>
+</div>
+
+<div id="care" class="hide">
+  <div id="careSheet" class="panel">
+    <div id="careHead"><div id="careName">Csillag</div><div id="careCoins"><span class="ico-coin"></span><span id="careCoinN">0</span></div></div>
+    <div class="cstats">
+      <div class="cstat" id="cs_food">🌾 Étel<b><s></s></b></div>
+      <div class="cstat" id="cs_water">💧 Víz<b><s></s></b></div>
+      <div class="cstat" id="cs_clean">✨ Tisztaság<b><s></s></b></div>
+      <div class="cstat" id="cs_mood">❤️ Kedv<b><s></s></b></div>
+    </div>
+    <div class="tabs"><button data-tab="care" class="on">Gondozás</button><button data-tab="tack">Felszerelés</button><button data-tab="look">Kinézet</button></div>
+    <div id="carePane"></div>
+  </div>
+  <button id="btnMount">🐴 Nyeregbe!</button>
+</div>
+<div id="careHint" class="hide"></div>
+<div id="brushCur" class="hide"></div>
+
+<div id="title" class="hide"><div id="titleBox" class="panel"></div></div>
+<div id="modal" class="hide"><div id="modalBox"></div></div>
+<div id="bigmap" class="hide"><canvas id="bigc" width="800" height="800"></canvas></div>
+<script>/*BUNDLE*/</script>
+</body>
+</html>

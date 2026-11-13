@@ -1,0 +1,995 @@
+import * as THREE from 'three';
+import { World, TIE, STABLE, ARENA, WATER, HOME, SUN_DIR, HALF, SIZE, LAKE } from './world.js';
+import { buildProps } from './props.js';
+import { Grass } from './grass.js';
+import { Horse, COATS, SADDLES, PALETTE } from './horse.js';
+import { Rider, HAIR } from './rider.js';
+import { Sound } from './audio.js';
+import { DynTube, canvasTexture } from './geom.js';
+import { clamp, lerp, smoothstep, damp, dampAngle, wrapAngle } from './noise.js';
+
+const $ = (id) => document.getElementById(id);
+const isTouch = matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window;
+const TAU = Math.PI * 2;
+
+// ---------- ikonok ----------
+const ICON = {
+  coin: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill="#f2c33a" stroke="#c98a12" stroke-width="2"/><circle cx="12" cy="12" r="5.8" fill="none" stroke="#c98a12" stroke-width="1.6" opacity=".7"/></svg>',
+  shoe: '<svg viewBox="0 0 24 24"><path d="M6 20C3 14 3 7 8 4c2.5-1.4 5.5-1.4 8 0 5 3 5 10 2 16" fill="none" stroke="#e0a417" stroke-width="3.8" stroke-linecap="round"/><g fill="#7a5200"><circle cx="6.2" cy="13" r=".95"/><circle cx="7.6" cy="8" r=".95"/><circle cx="17.8" cy="13" r=".95"/><circle cx="16.4" cy="8" r=".95"/></g></svg>',
+  hoof: '<svg viewBox="0 0 24 24"><path d="M6 20C3 14 3 7 8 4c2.5-1.4 5.5-1.4 8 0 5 3 5 10 2 16" fill="none" stroke="#8b8f96" stroke-width="3.8" stroke-linecap="round"/><path d="M15 3l5-2" stroke="#6b4a2e" stroke-width="2.4" stroke-linecap="round"/></svg>',
+  brush: '<svg viewBox="0 0 48 48"><rect x="7" y="13" width="34" height="15" rx="7" fill="#8a5a33"/><g stroke="#3b2a1d" stroke-width="2.6" stroke-linecap="round"><path d="M12 29v8M17 29v9M22 29v9M27 29v9M32 29v9M37 29v8"/></g><rect x="12" y="9" width="24" height="6" rx="3" fill="#b07a4a"/></svg>',
+};
+document.querySelectorAll('.ico-coin').forEach((e) => (e.innerHTML = ICON.coin));
+document.querySelectorAll('.ico-shoe').forEach((e) => (e.innerHTML = ICON.shoe));
+$('brushCur').innerHTML = ICON.brush;
+
+// ---------- mentés ----------
+const KEY = 'vagtavolgy.v1';
+const DEFAULT = () => ({
+  name: 'Csillag', coat: 'pej', blaze: true, socks: false,
+  tack: { saddle: null, pad: null, bridle: null, wraps: null, blanket: 'kek' },
+  rider: { jacket: '#1f2f5c', helmet: '#1d1d22', hair: 'barna' },
+  stats: { food: 55, water: 45, clean: 30, mood: 70 },
+  coins: 15, shoes: [], best: null, cleanJumps: 0, sound: true, quality: isTouch ? 'normal' : 'szep',
+  tut: { fed: false, water: false, brush: false, tack: false, done: false, ride: false },
+});
+let S = null;
+function load() { try { const s = localStorage.getItem(KEY); if (!s) return null; const d = DEFAULT(), o = JSON.parse(s); return { ...d, ...o, tack: { ...d.tack, ...o.tack }, rider: { ...d.rider, ...o.rider }, stats: { ...d.stats, ...o.stats }, tut: { ...d.tut, ...o.tut } }; } catch (e) { return null; } }
+function save() { if (!S) return; try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) { } }
+
+// ---------- állapot ----------
+const SPEED = { stand: 0, walk: 1.8, trot: 4.2, canter: 7.5, gallop: 12.5 };
+const GAIT_HU = { stand: 'Áll', walk: 'Lépés', trot: 'Ügetés', canter: 'Vágta', gallop: 'Galopp' };
+const R = {
+  mode: 'loading', x: TIE.x, z: TIE.z, yaw: Math.PI / 2, v: 0, yawRate: 0, gait: 'stand', energy: 100, tired: false,
+  lift: 0, pitch: 0, roll: 0, jump: { active: false, t: 0, dur: 0.85, h: 1, o: null, queued: null }, refuse: 0,
+  px: TIE.x, pz: TIE.z, drink: 0, course: { active: false, next: 1, t0: 0, faults: 0, refusals: 0, out: 0 },
+  cool: new Map(), msgCool: {}, careAct: null, brush: false, lastPet: 0,
+};
+const input = { jx: 0, jy: 0, m: 0, gallop: false, jump: false, keys: {} };
+const cam = { yaw: Math.PI, pitch: 0.3, dist: 6, target: new THREE.Vector3(TIE.x, 1.3, TIE.z), user: 9, shake: 0 };
+
+let renderer, scene, camera, world, props, grass, horse, rider, sound, sun, hemi, mapCanvas, arrow, reins = [];
+let parts = {}, time = 0, hudT = 0, saveT = 0, birdT = 5, autoQ = { t: 0, n: 0, acc: 0 }, pixelRatio = 1;
+const tmpV = new THREE.Vector3(), tmpV2 = new THREE.Vector3(), tmpV3 = new THREE.Vector3();
+
+// ---------- részecskék ----------
+class Particles {
+  constructor(scene, tex, cap = 240, additive = false) {
+    this.cap = cap; this.i = 0;
+    this.pos = new Float32Array(cap * 3); this.col = new Float32Array(cap * 3); this.size = new Float32Array(cap); this.alpha = new Float32Array(cap);
+    this.vel = new Float32Array(cap * 3); this.life = new Float32Array(cap); this.max = new Float32Array(cap).fill(1); this.grav = new Float32Array(cap); this.s0 = new Float32Array(cap); this.grow = new Float32Array(cap);
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.BufferAttribute(this.pos, 3)); g.setAttribute('aColor', new THREE.BufferAttribute(this.col, 3));
+    g.setAttribute('aSize', new THREE.BufferAttribute(this.size, 1)); g.setAttribute('aAlpha', new THREE.BufferAttribute(this.alpha, 1));
+    this.u = { map: { value: tex }, uScale: { value: 400 } };
+    this.mat = new THREE.ShaderMaterial({
+      uniforms: this.u, transparent: true, depthWrite: false, blending: additive ? THREE.AdditiveBlending : THREE.NormalBlending,
+      vertexShader: 'attribute vec3 aColor; attribute float aSize, aAlpha; varying vec3 vC; varying float vA; uniform float uScale; void main(){ vC=aColor; vA=aAlpha; vec4 mv = modelViewMatrix*vec4(position,1.0); gl_PointSize = aSize*uScale/max(-mv.z,0.1); gl_Position = projectionMatrix*mv; }',
+      fragmentShader: 'uniform sampler2D map; varying vec3 vC; varying float vA; void main(){ vec4 t = texture2D(map, gl_PointCoord); if (t.a*vA < 0.01) discard; gl_FragColor = vec4(vC*t.rgb, t.a*vA);\n#include <colorspace_fragment>\n}',
+    });
+    this.points = new THREE.Points(g, this.mat); this.points.frustumCulled = false; this.points.renderOrder = 5; scene.add(this.points);
+  }
+  emit(p, vx, vy, vz, life, size, color, grav = -2, grow = 1) {
+    const i = this.i = (this.i + 1) % this.cap;
+    this.pos[i * 3] = p.x; this.pos[i * 3 + 1] = p.y; this.pos[i * 3 + 2] = p.z;
+    this.vel[i * 3] = vx; this.vel[i * 3 + 1] = vy; this.vel[i * 3 + 2] = vz;
+    this.life[i] = life; this.max[i] = life; this.s0[i] = size; this.grav[i] = grav; this.grow[i] = grow;
+    const c = color; this.col[i * 3] = c.r; this.col[i * 3 + 1] = c.g; this.col[i * 3 + 2] = c.b;
+  }
+  update(dt) {
+    for (let i = 0; i < this.cap; i++) {
+      if (this.life[i] <= 0) { this.alpha[i] = 0; continue; }
+      this.life[i] -= dt; const t = 1 - this.life[i] / this.max[i];
+      this.vel[i * 3 + 1] += this.grav[i] * dt;
+      this.pos[i * 3] += this.vel[i * 3] * dt; this.pos[i * 3 + 1] += this.vel[i * 3 + 1] * dt; this.pos[i * 3 + 2] += this.vel[i * 3 + 2] * dt;
+      this.alpha[i] = this.life[i] > 0 ? Math.min(1, t * 6) * (1 - t) : 0; this.size[i] = this.s0[i] * (1 + this.grow[i] * t);
+    }
+    const a = this.points.geometry.attributes; a.position.needsUpdate = a.aAlpha.needsUpdate = a.aSize.needsUpdate = a.aColor.needsUpdate = true;
+  }
+}
+
+// ---------- indítás ----------
+function init() {
+  S = load();
+  renderer = new THREE.WebGLRenderer({ canvas: $('c'), antialias: true, powerPreference: 'high-performance' });
+  renderer.outputColorSpace = THREE.SRGBColorSpace;
+  renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 1.08;
+  renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  scene = new THREE.Scene();
+  camera = new THREE.PerspectiveCamera(55, innerWidth / innerHeight, 0.1, 1200);
+  const q = (S && S.quality) || (isTouch ? 'normal' : 'szep');
+  world = new World(scene, q);
+  scene.fog = new THREE.Fog(world.horizon, 90, 480);
+  scene.background = world.horizon;
+  hemi = new THREE.HemisphereLight('#d6e8ff', '#6b7a4a', 1.35); scene.add(hemi);
+  sun = new THREE.DirectionalLight('#fff0d6', 2.7); sun.castShadow = true;
+  sun.shadow.bias = -0.0004; sun.shadow.normalBias = 0.03;
+  scene.add(sun); scene.add(sun.target);
+  props = buildProps(world, scene);
+  grass = new Grass(world, scene, 'high'); grass.setQuality(q);
+  horse = new Horse(); scene.add(horse.root);
+  rider = new Rider(horse);
+  sound = new Sound();
+  const reinMat = new THREE.MeshStandardMaterial({ color: '#4a2c1b', roughness: 0.6 });
+  reins = [new DynTube(10, 0.008, reinMat), new DynTube(10, 0.008, reinMat)];
+  reins.forEach((r) => scene.add(r.mesh));
+  // részecske-textúrák
+  const dot = canvasTexture(64, 64, (c) => { const g = c.createRadialGradient(32, 32, 0, 32, 32, 32); g.addColorStop(0, 'rgba(255,255,255,1)'); g.addColorStop(0.5, 'rgba(255,255,255,.5)'); g.addColorStop(1, 'rgba(255,255,255,0)'); c.fillStyle = g; c.fillRect(0, 0, 64, 64); });
+  const heart = canvasTexture(64, 64, (c) => { c.fillStyle = '#fff'; c.beginPath(); c.moveTo(32, 54); c.bezierCurveTo(4, 34, 8, 8, 32, 20); c.bezierCurveTo(56, 8, 60, 34, 32, 54); c.fill(); });
+  const star = canvasTexture(64, 64, (c) => { const g = c.createRadialGradient(32, 32, 0, 32, 32, 30); g.addColorStop(0, 'rgba(255,255,255,1)'); g.addColorStop(0.2, 'rgba(255,255,255,.8)'); g.addColorStop(1, 'rgba(255,255,255,0)'); c.fillStyle = g; c.fillRect(0, 0, 64, 64); c.fillStyle = '#fff'; c.beginPath(); for (let i = 0; i < 8; i++) { const a = i * Math.PI / 4, r = i % 2 ? 6 : 30; c.lineTo(32 + Math.cos(a) * r, 32 + Math.sin(a) * r); } c.fill(); });
+  parts.dust = new Particles(scene, dot, 260);
+  parts.heart = new Particles(scene, heart, 60);
+  parts.star = new Particles(scene, star, 120, true);
+  // következő akadály nyíl
+  arrow = new THREE.Mesh(new THREE.ConeGeometry(0.28, 0.65, 16), new THREE.MeshStandardMaterial({ color: '#ff8a2a', emissive: '#c24a00', emissiveIntensity: 0.6 }));
+  arrow.rotation.x = Math.PI; arrow.visible = false; scene.add(arrow);
+  mapCanvas = world.renderMap(400);
+  applyQuality(q);
+  if (S) applyLook(); else { horse.setCoat('pej', { blaze: true }); horse.setTack(DEFAULT().tack); rider.setLook(DEFAULT().rider); }
+  placeHorseAtTie();
+  setupInput();
+  setupUI();
+  addEventListener('resize', onResize); onResize();
+  window.__vv = { info: () => JSON.stringify(renderer.info.render) + JSON.stringify(renderer.info.memory), R, S: () => S, input, cam, horse, rider, world, props, enterCare, mount, setMode: (m) => (R.mode = m), startNew, sound, placeHorse, closeModal, step: (n, d = 1 / 30, r = true) => { for (let i = 0; i < n; i++) update(d); if (r) renderer.render(scene, camera); }, render: () => renderer.render(scene, camera), camera };
+  // első kép
+  update(0.016); renderer.render(scene, camera);
+  $('loading').style.opacity = '0'; setTimeout(() => $('loading').classList.add('hide'), 500);
+  showTitle();
+  requestAnimationFrame(frame);
+}
+
+function applyQuality(q) {
+  const dpr = window.devicePixelRatio || 1;
+  pixelRatio = q === 'gyors' ? 1 : q === 'normal' ? Math.min(dpr, 1.6) : Math.min(dpr, 2.2);
+  renderer.setPixelRatio(pixelRatio);
+  if (grass) grass.setQuality(q);
+  const ms = q === 'gyors' ? 1024 : 2048;
+  if (sun.shadow.mapSize.x !== ms) { sun.shadow.mapSize.set(ms, ms); if (sun.shadow.map) { sun.shadow.map.dispose(); sun.shadow.map = null; } }
+  const e = q === 'gyors' ? 22 : 30; const c = sun.shadow.camera; c.left = -e; c.right = e; c.top = e; c.bottom = -e; c.near = 10; c.far = 200; c.updateProjectionMatrix();
+  onResize();
+}
+function onResize() {
+  if (!renderer) return;
+  renderer.setSize(innerWidth, innerHeight, false);
+  camera.aspect = innerWidth / innerHeight; camera.fov = innerWidth < innerHeight ? 62 : 55; camera.updateProjectionMatrix();
+  const sc = renderer.domElement.height / (2 * Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2));
+  for (const k in parts) parts[k].u.uScale.value = sc;
+}
+
+function applyLook() {
+  props.horseshoes.items.forEach((it) => (it.taken = S.shoes.includes(it.id)));
+  horse.setCoat(S.coat, { blaze: S.blaze, socks: S.socks });
+  horse.setTack(S.tack);
+  rider.setLook(S.rider);
+  horse.setDirt(dirtOf(S.stats.clean));
+  $('hname').textContent = S.name; $('careName').textContent = S.name;
+}
+const dirtOf = (c) => clamp((85 - c) / 85, 0, 1) * 0.95;
+
+function placeHorseAtTie() { placeHorse(TIE.x, TIE.z, Math.PI / 2); }
+const TITLE_SPOT = { x: -30, z: 8, yaw: -2.3 };
+function placeHorse(x, z, yaw) { R.x = x; R.z = z; R.yaw = yaw; R.v = 0; R.lift = 0; R.jump.active = false; R.jump.queued = null; R.px = R.x; R.pz = R.z; R.yawRate = 0; }
+
+// ---------- bemenet ----------
+function setupInput() {
+  const zone = $('joyzone'), base = $('joybase'), knob = $('joyknob');
+  let joyId = null, cx = 0, cy = 0; const RAD = 58;
+  const rest = () => { base.style.left = `calc(96px + env(safe-area-inset-left,0px))`; base.style.top = `calc(100% - 112px - env(safe-area-inset-bottom,0px))`; knob.style.transform = ''; };
+  rest();
+  zone.addEventListener('pointerdown', (e) => {
+    if (joyId !== null) return; joyId = e.pointerId; zone.setPointerCapture(e.pointerId);
+    const r = zone.getBoundingClientRect(); cx = clamp(e.clientX, r.left + 70, r.right - 20); cy = clamp(e.clientY, r.top + 20, r.bottom - 70);
+    base.style.left = (cx - r.left) + 'px'; base.style.top = (cy - r.top) + 'px'; zone.classList.remove('idle'); move(e); e.preventDefault();
+    sound.init();
+  });
+  const move = (e) => {
+    if (e.pointerId !== joyId) return;
+    let dx = e.clientX - cx, dy = e.clientY - cy; const d = Math.hypot(dx, dy);
+    if (d > RAD) { dx *= RAD / d; dy *= RAD / d; }
+    knob.style.transform = `translate(${dx}px,${dy}px)`;
+    input.jx = dx / RAD; input.jy = -dy / RAD; input.m = Math.min(1, d / RAD);
+  };
+  zone.addEventListener('pointermove', move);
+  const up = (e) => { if (e.pointerId !== joyId) return; joyId = null; input.jx = input.jy = input.m = 0; zone.classList.add('idle'); rest(); };
+  zone.addEventListener('pointerup', up); zone.addEventListener('pointercancel', up);
+
+  const hold = (el, on, off) => {
+    el.addEventListener('pointerdown', (e) => { e.preventDefault(); el.setPointerCapture(e.pointerId); el.classList.add('on'); on(); sound.init(); });
+    const u = () => { el.classList.remove('on'); off && off(); };
+    el.addEventListener('pointerup', u); el.addEventListener('pointercancel', u); el.addEventListener('lostpointercapture', u);
+  };
+  hold($('btnGallop'), () => (input.gallop = true), () => (input.gallop = false));
+  hold($('btnJump'), () => (input.jump = true));
+
+  // kamera húzás + gondozás
+  const cv = renderer.domElement; const ptrs = new Map();
+  cv.addEventListener('pointerdown', (e) => {
+    sound.init();
+    const p = { x: e.clientX, y: e.clientY, sx: e.clientX, sy: e.clientY, t: performance.now(), brushing: false };
+    if (R.mode === 'care' && R.brush) { const h = hitHorse(e.clientX, e.clientY); if (h) { p.brushing = true; showBrush(e.clientX, e.clientY); } }
+    ptrs.set(e.pointerId, p); cv.setPointerCapture(e.pointerId);
+  });
+  cv.addEventListener('pointermove', (e) => {
+    const p = ptrs.get(e.pointerId); if (!p) return;
+    const dx = e.clientX - p.x, dy = e.clientY - p.y; p.x = e.clientX; p.y = e.clientY;
+    if (p.brushing) { brushAt(e.clientX, e.clientY, Math.hypot(dx, dy)); return; }
+    if (ptrs.size === 2 && R.mode !== 'ride') { // csípés: zoom
+      const arr = [...ptrs.values()]; const d = Math.hypot(arr[0].x - arr[1].x, arr[0].y - arr[1].y);
+      if (p.pd) cam.zoom = clamp((cam.zoom || 1) * (p.pd / d), 0.6, 1.6); p.pd = d; return;
+    }
+    cam.yaw -= dx * 0.0065; cam.pitch = clamp(cam.pitch + dy * 0.004, -0.05, 1.1); cam.user = 0;
+  });
+  const end = (e) => {
+    const p = ptrs.get(e.pointerId); if (!p) return; ptrs.delete(e.pointerId);
+    $('brushCur').classList.add('hide');
+    const moved = Math.hypot(e.clientX - p.sx, e.clientY - p.sy);
+    if (R.mode === 'care' && !p.brushing && moved < 10 && performance.now() - p.t < 400) { const h = hitHorse(e.clientX, e.clientY); if (h) pet(h.point); }
+  };
+  cv.addEventListener('pointerup', end); cv.addEventListener('pointercancel', end);
+  // billentyűzet (gépen teszteléshez)
+  addEventListener('keydown', (e) => {
+    if (e.target.tagName === 'INPUT') return;
+    input.keys[e.code] = true;
+    if (e.code === 'Space') { input.jump = true; e.preventDefault(); }
+    if (e.code === 'Digit1') input.kGait = 0.4; if (e.code === 'Digit2') input.kGait = 0.7; if (e.code === 'Digit3') input.kGait = 1;
+    sound.init();
+  });
+  addEventListener('keyup', (e) => { input.keys[e.code] = false; });
+  document.addEventListener('visibilitychange', () => { if (document.hidden) save(); });
+  addEventListener('pagehide', save);
+  document.addEventListener('gesturestart', (e) => e.preventDefault());
+  document.addEventListener('dblclick', (e) => e.preventDefault());
+}
+
+function readKeys() {
+  const k = input.keys; let x = 0, y = 0;
+  if (k.KeyW || k.ArrowUp) y += 1; if (k.KeyS || k.ArrowDown) y -= 1; if (k.KeyA || k.ArrowLeft) x -= 1; if (k.KeyD || k.ArrowRight) x += 1;
+  if (x || y) { const d = Math.hypot(x, y); const m = input.kGait || 0.7; return { jx: x / d * m, jy: y / d * m, m, gallop: !!(k.ShiftLeft || k.ShiftRight) }; }
+  return null;
+}
+
+// ---------- lovaglás ----------
+const groundY = (x, z) => world.heightAt(x, z) + (world.inArena(x, z) ? 0.04 : world.inYard(x, z) ? 0.035 : 0);
+function gaitFor(v, prev) {
+  const order = ['stand', 'walk', 'trot', 'canter', 'gallop'], th = [0.12, 2.9, 5.9, 10.2];
+  let i = 0; while (i < 4 && v >= th[i]) i++;
+  const pi = order.indexOf(prev);
+  if (Math.abs(i - pi) === 1 && Math.abs(v - th[Math.min(i, pi)]) < 0.2) return prev;
+  return order[i];
+}
+const jumpDur = (v) => clamp(0.95 - v * 0.013, 0.74, 0.92);
+
+function aheadOf(o) {
+  const fx = Math.sin(R.yaw), fz = Math.cos(R.yaw);
+  const dx = R.x - o.x, dz = R.z - o.z;
+  const cosA = fx * o.f.x + fz * o.f.y; if (Math.abs(cosA) < 0.35) return null;
+  const sg = Math.sign(cosA), lf = dx * o.f.x + dz * o.f.y, la = dx * o.a.x + dz * o.a.y;
+  const dist = -lf * sg;
+  const lat = la + (fx * o.a.x + fz * o.a.y) * (Math.max(dist, 0) / Math.abs(cosA));
+  return { o, dist, lat, sg };
+}
+function obstacleLoose() {
+  let best = null;
+  for (const o of props.obstacles) {
+    if (Math.abs(R.x - o.x) > 16 || Math.abs(R.z - o.z) > 16) continue;
+    const q = aheadOf(o); if (!q) continue;
+    const fx = Math.sin(R.yaw), fz = Math.cos(R.yaw), cosA = Math.abs(fx * o.f.x + fz * o.f.y);
+    const laNow = (R.x - o.x) * o.a.x + (R.z - o.z) * o.a.y;
+    if (cosA < 0.45 || q.dist < 0.8 || q.dist > 14 || Math.abs(laNow) > o.w / 2 + 2.5 || Math.abs(q.lat) > o.w / 2 + 6) continue;
+    if (!best || q.dist < best.dist) best = q;
+  }
+  return best;
+}
+function obstacleAhead() {
+  let best = null; const fx = Math.sin(R.yaw), fz = Math.cos(R.yaw);
+  for (const o of props.obstacles) {
+    const dx = R.x - o.x, dz = R.z - o.z; if (Math.abs(dx) > 20 || Math.abs(dz) > 20) continue;
+    const cosA = fx * o.f.x + fz * o.f.y; if (Math.abs(cosA) < 0.5) continue;
+    const sg = Math.sign(cosA), lf = dx * o.f.x + dz * o.f.y, la = dx * o.a.x + dz * o.a.y;
+    const dist = -lf * sg; if (dist < -0.3 || dist > 15) continue;
+    const lat = la + (fx * o.a.x + fz * o.a.y) * (Math.max(dist, 0) / Math.abs(cosA));
+    if (Math.abs(lat) > o.w / 2 + 0.25) continue;
+    if (!best || dist < best.dist) best = { o, dist, sg };
+  }
+  return best;
+}
+
+function takeoff(o, dist) {
+  const dur = jumpDur(R.v);
+  let H = o ? Math.max(o.h + 0.32, 1.05) : 1.25;
+  if (o) {
+    const tc = clamp(dist / (Math.max(R.v, 4) * dur), 0.05, 0.95);
+    const need = (o.h + 0.02) / (4 * tc * (1 - tc));
+    if (need > H) H = Math.min(need, o.h + 0.6);
+  }
+  R.jump = { active: true, t: 0, dur, h: H, o, queued: null };
+  R.v = Math.max(R.v, 4.2);
+  R.energy = Math.max(0, R.energy - 4);
+  sound.burst({ f: 500, q: 0.7, dur: 0.25, vol: 0.18 });
+}
+
+function refuse(o) {
+  dbg('refuse ' + o.id + ' c' + o.course + ' v' + R.v.toFixed(1));
+  R.v = 0; R.refuse = 1.1; R.jump.queued = null;
+  const back = 0.6; R.x -= Math.sin(R.yaw) * back; R.z -= Math.cos(R.yaw) * back;
+  sound.snort(); S.stats.mood = Math.max(0, S.stats.mood - 3);
+  toast('A lovad megtorpant! Nyomd meg időben az Ugrás gombot.', 'bad');
+  if (R.course.active && o.course === R.course.next) {
+    R.course.faults += 4; R.course.refusals++;
+    if (R.course.refusals >= 3) { endCourse(false); toast('Harmadik megtorpanás – kiestél. Próbáld újra!', 'bad'); }
+  }
+}
+
+function onClear(o, dirOk, lift) {
+  if (o.lastCross && time - o.lastCross < 1.5) return; o.lastCross = time;
+  dbg('clear ' + o.id + ' c' + o.course + ' dir' + dirOk + ' lift' + lift.toFixed(2) + ' h' + o.h);
+  const clean = lift >= o.h - 0.03;
+  const now = time;
+  if (clean) {
+    S.cleanJumps++;
+    for (let i = 0; i < 10; i++) parts.star.emit(tmpV.set(R.x, groundY(R.x, R.z) + 1.4, R.z), (Math.random() - 0.5) * 3, Math.random() * 2.5, (Math.random() - 0.5) * 3, 0.9, 0.2, new THREE.Color('#ffe08a'), -1, 0);
+    if (!R.course.active) {
+      const last = R.cool.get(o.id) || -99;
+      if (now - last > 15) { R.cool.set(o.id, now); addCoins(1); toast('Szép ugrás! +1 érme', 'good'); }
+      else toast('Szép ugrás!', 'good');
+    }
+  } else {
+    if (o.poles.length) { props.knock(o); sound.pole(); }
+    else sound.thud();
+    if (!R.course.active) toast(o.poles.length ? 'Leverte a rudat! Kicsit korábban ugorj.' : 'Hozzáért, de átjutott.', 'bad');
+  }
+  if (R.course.active && o.course) {
+    if (o.course === R.course.next && dirOk) {
+      if (!clean) { R.course.faults += 4; toast('Leverés: +4 hibapont', 'bad'); }
+      else toast(`${o.course}. akadály – tiszta!`, 'good');
+      R.course.next++; R.course.refusals = 0;
+      if (R.course.next > 8) toast('Most lovagolj át a CÉL kapun!', 'good');
+    } else if (o.course !== R.course.next) toast(`Ez nem a soron következő! Most a(z) ${R.course.next}. jön.`);
+  }
+}
+
+function crossGate(g, dx0, dz0, dx1, dz1) {
+  const l0 = dx0 * g.f.x + dz0 * g.f.y, l1 = dx1 * g.f.x + dz1 * g.f.y;
+  const la = dx1 * g.a.x + dz1 * g.a.y;
+  return l0 < 0 && l1 >= 0 && Math.abs(la) < g.hw;
+}
+
+function startCourse() {
+  props.resetPoles();
+  R.course = { active: true, next: 1, t0: time, faults: 0, refusals: 0, out: 0 };
+  $('course').classList.remove('hide');
+  toast('Rajt! Ugord át az akadályokat sorban, 1-től 8-ig.', 'good');
+  sound.success();
+}
+function endCourse(finished) {
+  const c = R.course; c.active = false; $('course').classList.add('hide'); arrow.visible = false;
+  if (!finished) return;
+  const t = time - c.t0;
+  const clean = c.faults === 0;
+  const reward = clean ? 25 : 10;
+  addCoins(reward);
+  let rec = false;
+  if (!S.best || c.faults < S.best.faults || (c.faults === S.best.faults && t < S.best.time)) { S.best = { faults: c.faults, time: t }; rec = true; }
+  sound.success(); if (clean) setTimeout(() => sound.neigh(), 600);
+  modal(`<h2>${clean ? '🏆 Hibátlan kör!' : '🎉 Célba értél!'}</h2>
+    <div class="res"><div><b>${t.toFixed(1)} mp</b>idő</div><div><b>${c.faults}</b>hibapont</div><div><b>+${reward}</b>érme</div></div>
+    <p>${rec ? '⭐ Új egyéni csúcs!' : `Legjobb: ${S.best.faults} hibapont, ${S.best.time.toFixed(1)} mp`}</p>
+    <p style="color:#666;font-size:14px">A rajtkapun újra átlovagolva újrakezdheted.</p>
+    <button class="big" data-close>Szuper!</button>`);
+  save();
+}
+
+function rideUpdate(dt) {
+  const k = readKeys();
+  let jx = input.jx, jy = input.jy, m = input.m, gal = input.gallop;
+  if (k) { jx = k.jx; jy = k.jy; m = k.m; gal = gal || k.gallop; }
+  let gaitT = 'stand', desired = R.yaw;
+  if (R.drink > 0) { m = 0; }
+  if (m > 0.12) {
+    const fx = Math.sin(cam.yaw), fz = Math.cos(cam.yaw), rx = -Math.cos(cam.yaw), rz = Math.sin(cam.yaw);
+    desired = input.absYaw != null ? input.absYaw : Math.atan2(fx * jy + rx * jx, fz * jy + rz * jx);
+    gaitT = m < 0.5 ? 'walk' : m < 0.88 ? 'trot' : 'canter';
+    if (gal && m > 0.3) gaitT = 'gallop';
+  }
+  if (R.jump.queued && m > 0.12) {
+    const o = R.jump.queued, q = aheadOf(o);
+    if (q) { const tx = o.x + o.f.x * q.sg * 2.5, tz = o.z + o.f.y * q.sg * 2.5; desired = Math.atan2(tx - R.x, tz - R.z); }
+  }
+  if (gaitT === 'gallop' && (R.tired || R.energy < 6)) { gaitT = 'canter'; if (!R.tired) { R.tired = true; toast('A lovad elfáradt – pihentesd lépésben!', 'bad'); } }
+  if (R.tired && R.energy > 40) R.tired = false;
+  if (R.refuse > 0) { R.refuse -= dt; gaitT = 'stand'; R.v = 0; }
+
+  const diff = wrapAngle(desired - R.yaw);
+  const tr = lerp(2.3, 0.85, clamp((R.v - 1) / 11, 0, 1));
+  const want = m > 0.12 && R.refuse <= 0 ? clamp(diff * 3.2, -tr, tr) : 0;
+  R.yawRate = damp(R.yawRate, want * (R.jump.active ? 0.25 : 1), 9, dt);
+  R.yaw = wrapAngle(R.yaw + R.yawRate * dt);
+  let vt = SPEED[gaitT];
+  if (Math.abs(diff) > 1.5 && m > 0.12) vt = Math.min(vt, 1.7);
+  const fx = Math.sin(R.yaw), fz = Math.cos(R.yaw);
+  const hC = world.heightAt(R.x, R.z);
+  const slope = (world.heightAt(R.x + fx * 1.5, R.z + fz * 1.5) - hC) / 1.5;
+  vt *= clamp(1 - slope * 1.5, 0.35, 1.12);
+  const depth = WATER - hC; if (depth > 0) vt *= clamp(1 - depth * 0.55, 0.3, 1);
+  if (!R.jump.active) { const a = vt > R.v ? 2.6 + R.v * 0.12 : 6.5; R.v = R.v < vt ? Math.min(vt, R.v + a * dt) : Math.max(vt, R.v - a * dt); }
+  R.gait = gaitFor(R.v, R.gait);
+
+  // ugrás
+  const ahead = obstacleAhead();
+  if (input.jump) {
+    input.jump = false;
+    if (!R.jump.active && R.refuse <= 0) {
+      dbg('press v' + R.v.toFixed(1) + ' ' + (ahead ? 'o' + ahead.o.id + ' d' + ahead.dist.toFixed(1) : 'none') + ' x' + R.x.toFixed(1) + ' z' + R.z.toFixed(1) + ' yaw' + R.yaw.toFixed(2));
+      const loose = ahead || obstacleLoose();
+      if (R.v < 2.6) toast(loose ? 'Ügetésből vagy vágtából tudsz ugratni!' : 'Gyorsíts ügetésre vagy vágtára az ugráshoz!');
+      else if (loose) {
+        const dTake = Math.max(R.v, 4.2) * jumpDur(R.v) * 0.5;
+        if (loose.dist > dTake + 0.25 || !ahead) R.jump.queued = loose.o;
+        else if (loose.dist - loose.o.d / 2 > 0.15) takeoff(loose.o, loose.dist);
+      } else takeoff(null, 0);
+    }
+  }
+  if (!R.jump.active && R.jump.queued) {
+    const q = aheadOf(R.jump.queued);
+    const laNow = q ? (R.x - q.o.x) * q.o.a.x + (R.z - q.o.z) * q.o.a.y : 99;
+    if (!q || q.dist < -0.3 || q.dist > 16 || Math.abs(laNow) > q.o.w / 2 + 3) R.jump.queued = null;
+    else if (Math.abs(q.lat) > q.o.w / 2 - 0.3) { /* még igazodik */ }
+    else {
+      const dTake = Math.max(R.v, 4.2) * jumpDur(R.v) * 0.5;
+      if (q.dist <= dTake + 0.05) {
+        if ((S.stats.mood < 22 && Math.random() < 0.35) || R.energy < 3) refuse(q.o); else takeoff(q.o, q.dist);
+      }
+    }
+  }
+  if (!R.jump.active && ahead && R.v > 1.2 && R.refuse <= 0 && !R.jump.queued && ahead.dist - ahead.o.d / 2 < 1.55) refuse(ahead.o);
+  if (R.jump.active) {
+    R.jump.t += dt / R.jump.dur;
+    const t = Math.min(R.jump.t, 1);
+    R.lift = R.jump.h * 4 * t * (1 - t);
+    if (R.jump.t >= 1) {
+      R.jump.active = false; R.lift = 0; sound.thud(); cam.shake = 0.12;
+      for (let i = 0; i < 10; i++) parts.dust.emit(tmpV.set(R.x + (Math.random() - 0.5), groundY(R.x, R.z) + 0.1, R.z + (Math.random() - 0.5)), (Math.random() - 0.5) * 2, Math.random() * 1.2, (Math.random() - 0.5) * 2, 1.0, 0.5, dustColor(R.x, R.z), -0.5, 2);
+    }
+  }
+
+  // mozgás
+  let nx = R.x + fx * R.v * dt, nz = R.z + fz * R.v * dt;
+  const hN = world.heightAt(nx, nz);
+  const steep = (hN - hC) / Math.max(R.v * dt, 1e-3);
+  if (hN < WATER - 1.25 || Math.abs(nx) > HALF - 18 || Math.abs(nz) > HALF - 18 || (steep > 1.05 && R.v > 0.1)) {
+    nx = R.x; nz = R.z; if (!R.jump.active) R.v *= 0.3;
+    if (hN < WATER - 1.25) msgOnce('deep', 'Ott már túl mély a víz!');
+    else msgOnce('steep', 'Arra túl meredek.');
+  }
+  // ütközés két körrel (mar, far)
+  for (const [off, r] of [[0.78, 0.42], [-0.62, 0.42]]) {
+    const p = { x: nx + fx * off, z: nz + fz * off }, ox = p.x, oz = p.z;
+    if (world.resolve(p, r, R.lift)) {
+      nx += p.x - ox; nz += p.z - oz;
+      if (off > 0 && !R.jump.active) R.v *= Math.pow(0.05, dt);
+    }
+  }
+  // átkelés akadályon / kapun
+  for (const o of props.obstacles) {
+    const dx0 = R.px - o.x, dz0 = R.pz - o.z; if (Math.abs(dx0) > 8 || Math.abs(dz0) > 8) continue;
+    const dx1 = nx - o.x, dz1 = nz - o.z;
+    const l0 = dx0 * o.f.x + dz0 * o.f.y, l1 = dx1 * o.f.x + dz1 * o.f.y, la = dx1 * o.a.x + dz1 * o.a.y;
+    if (l0 * l1 < 0 && Math.abs(la) < o.w / 2 + 0.2 && R.lift > 0.15) onClear(o, l1 > 0, R.lift);
+  }
+  if (!R.course.active && crossGate(props.startGate, R.px - props.startGate.x, R.pz - props.startGate.z, nx - props.startGate.x, nz - props.startGate.z)) startCourse();
+  else if (R.course.active && R.course.next > 8 && crossGate(props.finishGate, R.px - props.finishGate.x, R.pz - props.finishGate.z, nx - props.finishGate.x, nz - props.finishGate.z)) endCourse(true);
+  if (R.course.active) {
+    R.course.out = world.inArena(nx, nz, 3) ? 0 : R.course.out + dt;
+    if (R.course.out > 6 || time - R.course.t0 > 240) { endCourse(false); toast('A kör megszakadt.'); }
+  }
+  R.px = R.x; R.pz = R.z; R.x = nx; R.z = nz;
+
+  // aranypatkók
+  for (const it of props.horseshoes.items) {
+    if (it.taken) continue;
+    if (Math.abs(it.x - R.x) < 2.3 && Math.abs(it.z - R.z) < 2.3 && Math.hypot(it.x - R.x, it.z - R.z) < 2.3) {
+      it.taken = true; S.shoes.push(it.id); addCoins(5); sound.coin();
+      for (let i = 0; i < 18; i++) parts.star.emit(tmpV.set(it.x, it.y, it.z), (Math.random() - 0.5) * 4, Math.random() * 3, (Math.random() - 0.5) * 4, 1, 0.25, new THREE.Color('#ffd54a'), -2, 0);
+      const n = S.shoes.length, tot = props.horseshoes.items.length;
+      if (n === tot) { addCoins(50); toast(`Mind a ${tot} aranypatkó megvan! +50 érme 🏆`, 'gold'); sound.success(); }
+      else toast(`Aranypatkó! +5 érme (${n}/${tot})`, 'gold');
+      save();
+    }
+  }
+
+  // energia és állapot
+  const g = R.gait;
+  const drain = { stand: -6, walk: -5, trot: -0.8, canter: 0.6, gallop: 7 }[g];
+  const maxE = 40 + 0.6 * Math.min(S.stats.food, S.stats.water);
+  R.energy = clamp(R.energy - drain * dt, 0, maxE);
+  const st = S.stats;
+  const inWater = depth > 0.05;
+  st.food = clamp(st.food - dt * (0.05 + (g === 'gallop' ? 0.08 : 0)) + (horse.grazing ? dt * 0.6 : 0), 0, 100);
+  st.water = clamp(st.water - dt * (0.06 + (g === 'gallop' || g === 'canter' ? 0.06 : 0)) + (R.drink > 0 ? dt * 14 : 0), 0, 100);
+  st.clean = clamp(st.clean - dt * (0.02 + (R.v > 5 ? 0.08 : 0) + (inWater && R.v > 1 ? 0.25 : 0)), 0, 100);
+  const tgtMood = (st.food + st.water + st.clean) / 3 + 15;
+  st.mood = clamp(st.mood + (tgtMood - st.mood) * 0.004 * dt, 0, 100);
+  if (R.drink > 0) { R.drink -= dt; if (R.drink <= 0) toast('Jólesett neki a friss víz! 💧', 'good'); }
+  horse.setDirt(dirtOf(st.clean));
+  if (st.food < 20) msgOnce('hungry', `${S.name} éhes! Legeltesd (állj meg vele), vagy etesd meg az istállóban.`, 60);
+  if (st.water < 20) msgOnce('thirsty', `${S.name} szomjas! Itasd meg a tónál vagy az istállónál.`, 60);
+}
+
+function dbg(t) { const l = R.log || (R.log = []); l.push(t); if (l.length > 60) l.shift(); }
+function msgOnce(key, txt, cool = 4) { if ((R.msgCool[key] || -99) + cool < time) { R.msgCool[key] = time; toast(txt); } }
+function dustColor(x, z) { return world.inArena(x, z) ? new THREE.Color('#cdb48a') : world.inYard(x, z) ? new THREE.Color('#a89c88') : new THREE.Color('#9b8263'); }
+function surfaceAt(x, z) {
+  if (WATER - world.heightAt(x, z) > 0.02) return 'water';
+  if (world.inArena(x, z)) return 'sand'; if (world.inYard(x, z)) return 'hard';
+  if (world.pathDist(x, z) < 1.8) return 'sand'; return 'grass';
+}
+
+// ---------- gondozás ----------
+let hayMesh, bucket;
+function careProps() {
+  if (hayMesh) return;
+  const hg = new THREE.Group();
+  for (let i = 0; i < 9; i++) { const s = new THREE.Mesh(new THREE.IcosahedronGeometry(0.22 + Math.random() * 0.08, 0), props.hayMat); s.position.set((Math.random() - 0.5) * 0.45, 0.1 + Math.random() * 0.08, (Math.random() - 0.5) * 0.45); s.scale.y = 0.55; s.castShadow = true; hg.add(s); }
+  hayMesh = hg; hayMesh.visible = false; scene.add(hayMesh);
+  const bg = new THREE.Group();
+  const b = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.16, 0.3, 18, 1, true), new THREE.MeshStandardMaterial({ color: '#2f6fd0', roughness: 0.5, side: THREE.DoubleSide })); b.position.y = 0.15; b.castShadow = true; bg.add(b);
+  const bot = new THREE.Mesh(new THREE.CircleGeometry(0.16, 18), b.material); bot.rotation.x = -Math.PI / 2; bot.position.y = 0.01; bg.add(bot);
+  const fill = new THREE.Mesh(new THREE.CircleGeometry(0.19, 18), new THREE.MeshStandardMaterial({ color: '#4a8fb0', roughness: 0.1 })); fill.rotation.x = -Math.PI / 2; fill.position.y = 0.24; bg.add(fill);
+  bucket = { g: bg, fill, body: b }; bg.visible = false; scene.add(bg);
+}
+
+function enterCare() {
+  if (R.course.active) endCourse(false);
+  R.mode = 'care'; placeHorseAtTie(); R.brush = false; R.careAct = null; R.drink = 0;
+  cam.yaw = Math.PI + 0.35; cam.pitch = 0.22; cam.zoom = 1; cam.user = 9;
+  cam.target.set(TIE.x, 1.25, TIE.z);
+  $('hud').classList.add('hide'); $('care').classList.remove('hide'); $('title').classList.add('hide');
+  input.jx = input.jy = input.m = 0;
+  careProps(); setTab('care'); updateCareStats();
+  save();
+}
+
+function mount() {
+  if (!S.tack.saddle || !S.tack.bridle) { toast('Előbb tedd fel a nyerget és a kantárt!', 'bad'); setTab('tack'); return; }
+  if (R.careAct) return;
+  if (S.tack.blanket) { S.tack.blanket = null; horse.setTack(S.tack); toast('A takarót levetted, indulhattok!'); }
+  R.brush = false; $('careHint').classList.add('hide');
+  R.mode = 'ride'; R.x = TIE.x + 0.4; R.z = TIE.z + 2.6; R.yaw = 0.85; R.px = R.x; R.pz = R.z; R.v = 0;
+  cam.yaw = R.yaw; cam.pitch = 0.26; cam.user = 9; cam.target.set(R.x, 1.9, R.z);
+  $('care').classList.add('hide'); $('hud').classList.remove('hide');
+  if (hayMesh) hayMesh.visible = false; if (bucket) bucket.g.visible = false;
+  S.tut.done = true;
+  if (!S.tut.ride) {
+    S.tut.ride = true;
+    setTimeout(() => modal(`<h2>Irányítás</h2><ul>
+      <li><b>Bal oldal:</b> húzd az ujjad arra, amerre menni szeretnél. Kicsit = <b>lépés</b>, félig = <b>ügetés</b>, teljesen = <b>vágta</b>.</li>
+      <li><b>Galopp gomb:</b> tartsd nyomva a leggyorsabb vágtához (fárasztó).</li>
+      <li><b>Ugrás gomb:</b> nyomd meg az akadály előtt, a ló a megfelelő helyen elrugaszkodik.</li>
+      <li><b>Jobb oldal:</b> húzással körbenézhetsz.</li>
+      <li>Gyűjtsd össze az <b>aranypatkókat</b>, és próbáld ki a <b>díjugrató pályát</b>: lovagolj át a zöld START kapun!</li></ul>
+      <button class="big" data-close>Indulás!</button>`), 300);
+  }
+  sound.snort(); save();
+}
+
+const ACTIONS = [
+  { id: 'brush', ico: ICON.brush, name: 'Csutakolás', sub: 'húzd a lovon' },
+  { id: 'hoof', ico: ICON.hoof, name: 'Patakaparás', sub: '' },
+  { id: 'hay', ico: '🌾', name: 'Széna', sub: 'ingyen' },
+  { id: 'water', ico: '💧', name: 'Víz', sub: 'ingyen' },
+  { id: 'oats', ico: '🥣', name: 'Zab', sub: '3 érme', cost: 3 },
+  { id: 'apple', ico: '🍎', name: 'Alma', sub: '1 érme', cost: 1 },
+  { id: 'carrot', ico: '🥕', name: 'Répa', sub: '1 érme', cost: 1 },
+  { id: 'pet', ico: '❤️', name: 'Simogatás', sub: 'koppints rá' },
+];
+let curTab = 'care';
+function setTab(t) {
+  curTab = t;
+  document.querySelectorAll('.tabs button').forEach((b) => b.classList.toggle('on', b.dataset.tab === t));
+  renderPane();
+}
+function chip(label, on, attrs, color) {
+  return `<button class="chip ${color && !label ? 'sw' : ''} ${on ? 'on' : ''}" ${attrs}>${color ? `<span class="dot" style="background:${color}"></span>` : ''}${label || ''}</button>`;
+}
+function renderPane() {
+  const P = $('carePane'); let h = '';
+  if (curTab === 'care') {
+    if (!S.tut.done) {
+      const t = S.tut; const it = (ok, txt) => `<div class="${ok ? 'ok' : ''}">${ok ? '✅' : '⬜'} ${txt}</div>`;
+      h += `<div id="tut" class="panel" style="margin-bottom:8px;box-shadow:none;background:#fff6e6"><h5>Első lépések</h5>
+        ${it(t.fed, 'Adj neki szénát')}${it(t.water, 'Adj neki vizet')}${it(t.brush, 'Csutakold tisztára (✨ 80% fölé)')}${it(S.tack.saddle && S.tack.bridle, 'Nyergeld fel (Felszerelés fül)')}</div>`;
+    }
+    h += '<div class="agrid">' + ACTIONS.map((a) => `<button class="act ${a.id === 'brush' && R.brush ? 'on' : ''}" data-act="${a.id}" ${R.careAct || (a.cost && S.coins < a.cost) ? 'disabled' : ''}><i>${a.ico}</i>${a.name}<small>${a.sub}</small></button>`).join('') + '</div>';
+  } else if (curTab === 'tack') {
+    const T = S.tack;
+    const sec = (title, key, opts) => `<div class="opt"><h4>${title}</h4><div class="chips">${opts}</div></div>`;
+    const leather = (key) => chip('Nincs', !T[key], `data-tack="${key}" data-v=""`) + Object.entries(SADDLES).map(([k, c]) => chip({ barna: 'Barna', fekete: 'Fekete', konyak: 'Konyak' }[k], T[key] === k, `data-tack="${key}" data-v="${k}"`, c)).join('');
+    const pal = (key) => chip('Nincs', !T[key], `data-tack="${key}" data-v=""`) + Object.entries(PALETTE).map(([k, p]) => chip('', T[key] === k, `data-tack="${key}" data-v="${k}" aria-label="${p.name}"`, p.c)).join('');
+    h += sec('Nyereg', 'saddle', leather('saddle')) + sec('Kantár', 'bridle', leather('bridle')) + sec('Nyeregalátét', 'pad', pal('pad')) + sec('Fásli (lábvédő)', 'wraps', pal('wraps')) + sec('Takaró (csak az istállóban)', 'blanket', pal('blanket'));
+  } else {
+    h += `<div class="opt"><h4>A lovad neve</h4><input class="namein" id="nameIn" maxlength="16" value="${esc(S.name)}"></div>`;
+    h += `<div class="opt"><h4>Szőrszín</h4><div class="chips">${Object.entries(COATS).map(([k, c]) => chip(c.name, S.coat === k, `data-coat="${k}"`, c.patch ? `linear-gradient(135deg,${c.base} 50%,${c.patch} 50%)` : c.base)).join('')}</div></div>`;
+    h += `<div class="opt"><h4>Jegyek</h4><div class="chips">${chip('Hóka a homlokán', S.blaze, 'data-flag="blaze"')}${chip('Fehér zokni', S.socks, 'data-flag="socks"')}</div></div>`;
+    const jc = ['#1f2f5c', '#2f63d6', '#d23a33', '#8a55d0', '#f27aaa', '#2e9a58', '#21b3ae', '#222222', '#f4f2ec'];
+    h += `<div class="opt"><h4>Lovas kabátja</h4><div class="chips">${jc.map((c) => chip('', S.rider.jacket === c, `data-rider="jacket" data-v="${c}"`, c)).join('')}</div></div>`;
+    h += `<div class="opt"><h4>Lovas sisakja</h4><div class="chips">${['#1d1d22', '#1f2f5c', '#f4f2ec', '#f27aaa', '#8a55d0', '#d23a33', '#c9a13a'].map((c) => chip('', S.rider.helmet === c, `data-rider="helmet" data-v="${c}"`, c)).join('')}</div></div>`;
+    h += `<div class="opt"><h4>Lovas haja</h4><div class="chips">${Object.entries(HAIR).map(([k, c]) => chip({ barna: 'Barna', szoke: 'Szőke', fekete: 'Fekete', voros: 'Vörös' }[k], S.rider.hair === k, `data-rider="hair" data-v="${k}"`, c)).join('')}</div></div>`;
+  }
+  P.innerHTML = h;
+  const ni = $('nameIn'); if (ni) ni.addEventListener('input', () => { S.name = ni.value.trim() || 'Csillag'; $('hname').textContent = S.name; $('careName').textContent = S.name; save(); });
+}
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+function careClick(e) {
+  const b = e.target.closest('button'); if (!b) return;
+  sound.init();
+  if (b.dataset.act) return doAction(b.dataset.act);
+  if (b.dataset.tack !== undefined) {
+    const k = b.dataset.tack, v = b.dataset.v || null; S.tack[k] = v; horse.setTack(S.tack);
+    if (S.tack.saddle && S.tack.bridle) S.tut.tack = true;
+    sound.tone({ f: 660, dur: 0.08, vol: 0.1, type: 'triangle' }); renderPane(); save(); return;
+  }
+  if (b.dataset.coat) { S.coat = b.dataset.coat; applyLook(); renderPane(); save(); return; }
+  if (b.dataset.flag) { S[b.dataset.flag] = !S[b.dataset.flag]; applyLook(); renderPane(); save(); return; }
+  if (b.dataset.rider) { S.rider[b.dataset.rider] = b.dataset.v; rider.setLook(S.rider); renderPane(); save(); }
+}
+
+function doAction(id) {
+  const a = ACTIONS.find((x) => x.id === id);
+  if (R.careAct && id !== 'brush') return;
+  if (a.cost) { if (S.coins < a.cost) { toast('Nincs elég érméd. Gyűjts aranypatkót vagy ugorj!'); return; } addCoins(-a.cost); }
+  if (id === 'brush') { R.brush = !R.brush; $('careHint').textContent = 'Húzd az ujjad a lovon a csutakoláshoz!'; $('careHint').classList.toggle('hide', !R.brush); renderPane(); return; }
+  if (id === 'pet') { toast('Koppints a lovadra a simogatáshoz! ❤️'); return; }
+  R.brush = false; $('careHint').classList.add('hide');
+  const head = new THREE.Vector3(TIE.x + 1.55, groundY(TIE.x + 1.55, TIE.z), TIE.z);
+  const durs = { hoof: 4.6, hay: 5, water: 4, oats: 4, apple: 2.2, carrot: 2.2 };
+  R.careAct = { id, t: 0, dur: durs[id] };
+  if (id === 'hay') { hayMesh.position.copy(head); hayMesh.scale.setScalar(1); hayMesh.visible = true; }
+  if (id === 'water' || id === 'oats') {
+    bucket.g.position.copy(head); bucket.g.visible = true; bucket.fill.position.y = 0.24;
+    bucket.fill.material.color.set(id === 'water' ? '#4a8fb0' : '#d8b26a'); bucket.body.material.color.set(id === 'water' ? '#2f6fd0' : '#c9453a');
+  }
+  if (id === 'apple' || id === 'carrot') sound.munch();
+  renderPane();
+}
+
+function careUpdate(dt) {
+  const hs = { mode: R.mode === 'title' ? 'ride' : 'care', headDown: 0, chew: false, nod: 0, liftLeg: -1, liftAmt: 0, lookYaw: 0 };
+  if (!S) return hs;
+  const st = S.stats; const a = R.careAct;
+  if (a) {
+    a.t += dt; const p = a.t / a.dur;
+    if (a.id === 'hay') { hs.headDown = p < 0.92 ? 1 : 0; hs.chew = true; st.food = Math.min(100, st.food + dt * 8); hayMesh.scale.setScalar(Math.max(0.2, 1 - p * 0.8)); if (Math.random() < dt * 2) sound.munch(); }
+    if (a.id === 'water') { hs.headDown = p < 0.9 ? 1 : 0; st.water = Math.min(100, st.water + dt * 13); bucket.fill.position.y = 0.24 - p * 0.18; }
+    if (a.id === 'oats') { hs.headDown = p < 0.9 ? 1 : 0; hs.chew = true; st.food = Math.min(100, st.food + dt * 7); st.mood = Math.min(100, st.mood + dt * 1.5); bucket.fill.position.y = 0.24 - p * 0.18; if (Math.random() < dt * 2) sound.munch(); }
+    if (a.id === 'apple' || a.id === 'carrot') { hs.chew = true; hs.nod = 0.6; st.mood = Math.min(100, st.mood + dt * 6); st.food = Math.min(100, st.food + dt * 1.5); if (Math.random() < dt * 5) heartsAt(headWorld()); }
+    if (a.id === 'hoof') {
+      const seg = 1.15, i = Math.floor(a.t / seg), f = (a.t % seg) / seg;
+      if (i < 4) { hs.liftLeg = i; hs.liftAmt = Math.sin(Math.PI * clamp(f * 1.15, 0, 1)); if (f > 0.4 && f < 0.6 && Math.random() < dt * 25) { horse.legs[i].hoof.getWorldPosition(tmpV); parts.dust.emit(tmpV, (Math.random() - 0.5), 0.5, (Math.random() - 0.5), 0.8, 0.12, new THREE.Color('#5e4630'), -4, 0); } }
+    }
+    if (a.t >= a.dur) {
+      if (a.id === 'hay') { hayMesh.visible = false; S.tut.fed = true; toast('Megette a szénát! 🌾', 'good'); }
+      if (a.id === 'water') { bucket.g.visible = false; S.tut.water = true; toast('Jóllakott vízzel! 💧', 'good'); }
+      if (a.id === 'oats') { bucket.g.visible = false; S.tut.fed = true; toast('Nyamm, zab! 🥣', 'good'); }
+      if (a.id === 'apple' || a.id === 'carrot') { toast(a.id === 'apple' ? 'Imádta az almát! 🍎' : 'Ropi-ropi, répa! 🥕', 'good'); sound.nicker(); }
+      if (a.id === 'hoof') { st.clean = Math.min(100, st.clean + 10); st.mood = Math.min(100, st.mood + 3); toast('A paták tiszták!', 'good'); }
+      R.careAct = null; renderPane(); save();
+    }
+  }
+  // fej a kamera felé
+  const toCam = Math.atan2(camera.position.x - R.x, camera.position.z - R.z);
+  hs.lookYaw = R.mode === 'care' && !a ? clamp(wrapAngle(toCam - R.yaw) * 0.35, -0.45, 0.45) : 0;
+  return hs;
+}
+const headWorld = () => horse.head.localToWorld(tmpV2.set(0, -0.2, 0.25));
+function heartsAt(p) { parts.heart.emit(p, (Math.random() - 0.5) * 0.6, 0.8 + Math.random() * 0.5, (Math.random() - 0.5) * 0.6, 1.4, 0.18, new THREE.Color('#ff5a8a'), -0.1, 0.4); }
+
+const ray = new THREE.Raycaster(), ndc = new THREE.Vector2();
+function hitHorse(x, y) {
+  ndc.set(x / innerWidth * 2 - 1, -(y / innerHeight) * 2 + 1); ray.setFromCamera(ndc, camera);
+  const h = ray.intersectObjects(horse.meshes, false); return h[0] || null;
+}
+let brushSnd = 0;
+function showBrush(x, y) { const b = $('brushCur'); b.classList.remove('hide'); b.style.left = x + 'px'; b.style.top = y + 'px'; }
+function brushAt(x, y, d) {
+  showBrush(x, y);
+  const h = hitHorse(x, y); if (!h) return;
+  const st = S.stats; const before = st.clean;
+  st.clean = Math.min(100, st.clean + d * 0.03); st.mood = Math.min(100, st.mood + d * 0.004);
+  horse.setDirt(dirtOf(st.clean));
+  if (Math.random() < 0.5) parts.dust.emit(h.point, (Math.random() - 0.5) * 0.6, 0.3 + Math.random() * 0.4, (Math.random() - 0.5) * 0.6, 0.9, 0.12, st.clean > 80 ? new THREE.Color('#fff2b0') : new THREE.Color('#8a7356'), -0.3, 1.5);
+  if (st.clean > 80 && Math.random() < 0.15) parts.star.emit(h.point, 0, 0.4, 0, 0.7, 0.15, new THREE.Color('#fff3c4'), 0, 0);
+  if (time - brushSnd > 0.13) { brushSnd = time; sound.brush(); }
+  if (before < 80 && st.clean >= 80) { S.tut.brush = true; toast(`${S.name} ragyog! ✨`, 'good'); renderPane(); horse.happyT = 2; }
+  if (before < 100 && st.clean >= 100) { R.brush = false; $('careHint').classList.add('hide'); $('brushCur').classList.add('hide'); renderPane(); }
+}
+function pet(p) {
+  if (time - R.lastPet < 0.5) return; R.lastPet = time;
+  for (let i = 0; i < 4; i++) heartsAt(p);
+  S.stats.mood = Math.min(100, S.stats.mood + 4); sound.nicker(); horse.happyT = 1.5;
+}
+
+// ---------- UI ----------
+function setupUI() {
+  $('carePane').addEventListener('click', careClick);
+  document.querySelectorAll('.tabs button').forEach((b) => b.addEventListener('click', () => { sound.init(); setTab(b.dataset.tab); }));
+  $('btnMount').addEventListener('click', () => { sound.init(); mount(); });
+  $('btnMenu').addEventListener('click', openMenu);
+  $('cstop').addEventListener('click', () => { endCourse(false); toast('Kör megszakítva.'); });
+  $('mini').addEventListener('click', openBigMap);
+  $('bigmap').addEventListener('click', () => $('bigmap').classList.add('hide'));
+  $('modal').addEventListener('click', (e) => {
+    const b = e.target.closest('button'); if (e.target.id === 'modal') return closeModal();
+    if (!b) return; if (b.dataset.close !== undefined) return closeModal();
+    const a = b.dataset.m;
+    if (a === 'stable') { closeModal(); enterCare(); }
+    if (a === 'arena') { closeModal(); const g = props.startGate; R.x = g.x - g.f.x * 6; R.z = g.z - g.f.y * 6; R.yaw = g.yaw; R.v = 0; R.px = R.x; R.pz = R.z; cam.yaw = R.yaw; toast('Lovagolj át a zöld START kapun!'); }
+    if (a === 'map') { closeModal(); openBigMap(); }
+    if (a === 'sound') { S.sound = !S.sound; sound.setOn(S.sound); save(); openMenu(); }
+    if (a === 'q') { const o = ['gyors', 'normal', 'szep']; S.quality = o[(o.indexOf(S.quality) + 1) % 3]; applyQuality(S.quality); save(); openMenu(); }
+    if (a === 'help') helpModal();
+    if (a === 'title') { closeModal(); save(); showTitle(); }
+  });
+}
+function modal(html) { $('modalBox').innerHTML = html; $('modal').classList.remove('hide'); R.paused = true; }
+function closeModal() { $('modal').classList.add('hide'); R.paused = false; }
+function openMenu() {
+  const qn = { gyors: 'Gyors', normal: 'Normál', szep: 'Szép' }[S.quality] || 'Normál';
+  modal(`<h2>Menü</h2>
+    <button class="big" data-close>▶️ Folytatás</button>
+    <button class="big alt" data-m="stable">🏠 Vissza az istállóba</button>
+    <button class="big alt" data-m="arena">🏁 Díjugrató pálya</button>
+    <button class="big ghost" data-m="map">🗺️ Térkép</button>
+    <button class="big ghost" data-m="sound">${S.sound ? '🔊 Hang: be' : '🔇 Hang: ki'}</button>
+    <button class="big ghost" data-m="q">⚙️ Grafika: ${qn}</button>
+    <button class="big ghost" data-m="help">❓ Súgó</button>
+    <button class="big ghost" data-m="title">🚪 Címlap</button>
+    ${S.best ? `<p style="text-align:center;margin-top:12px">🏆 Legjobb kör: ${S.best.faults} hibapont, ${S.best.time.toFixed(1)} mp</p>` : ''}`);
+}
+function helpModal() {
+  modal(`<h2>Súgó</h2><ul>
+    <li><b>Mozgás:</b> bal oldalon húzd az ujjad. Kicsit = lépés, félig = ügetés, teljesen = vágta. A <b>Galopp</b> gombot tartsd nyomva a leggyorsabb tempóhoz.</li>
+    <li><b>Ugrás:</b> ügetésben vagy vágtában, az akadály előtt nyomd meg. Ha korán nyomod, a ló kivárja a jó elugrási pontot. Ha túl későn, leverheti a rudat.</li>
+    <li><b>Kamera:</b> jobb oldalon húzással körbenézel.</li>
+    <li><b>Energia:</b> a galopp fáraszt. Lépésben vagy állva visszatölt. Jóllakott, itatott ló tovább bírja.</li>
+    <li><b>Gondozás:</b> az istállónál etesd, itasd, csutakold. Útközben megállva legel, a tóba besétálva ihat.</li>
+    <li><b>Díjugratás:</b> az aréna zöld START kapuján át indul az idő. Ugord át sorban az 1–8. akadályt, majd menj át a piros CÉL kapun. Leverés vagy megtorpanás 4 hibapont.</li>
+    <li><b>Aranypatkók:</b> 25 darab van elrejtve a völgyben. A térképen sárga pöttyök jelzik.</li></ul>
+    <button class="big" data-close>Értem</button>`);
+}
+
+function showTitle() {
+  R.mode = 'title'; placeHorse(TITLE_SPOT.x, TITLE_SPOT.z, TITLE_SPOT.yaw);
+  $('hud').classList.add('hide'); $('care').classList.add('hide'); $('careHint').classList.add('hide');
+  cam.yaw = TITLE_SPOT.yaw + 2.4; cam.pitch = 0.1; cam.zoom = 1;
+  const box = $('titleBox');
+  const has = !!S;
+  box.innerHTML = `<div class="logo">Vágtavölgy</div><p>Lovas kaland a saját lovaddal</p>
+    ${has ? `<button class="big" id="tContinue">Folytatás – ${esc(S.name)}</button><button class="big ghost" id="tNew">Új ló</button>` : newHorseForm()}`;
+  $('title').classList.remove('hide');
+  if (has) {
+    $('tContinue').onclick = () => { sound.init(); sound.setOn(S.sound); applyLook(); enterCare(); };
+    $('tNew').onclick = () => { box.innerHTML = `<div class="logo">Vágtavölgy</div>${newHorseForm()}<button class="big ghost" id="tBack">Vissza</button>`; bindNew(); $('tBack').onclick = showTitle; };
+  } else bindNew();
+}
+function newHorseForm() {
+  return `<label class="l">Mi legyen a lovad neve?</label><input class="namein" id="tName" maxlength="16" value="Csillag">
+    <label class="l">Milyen színű legyen?</label><div class="chips" id="tCoats" style="justify-content:center">${Object.entries(COATS).map(([k, c], i) => chip(c.name, i === 0, `data-c="${k}"`, c.patch ? `linear-gradient(135deg,${c.base} 50%,${c.patch} 50%)` : c.base)).join('')}</div>
+    <button class="big" id="tStart">Irány az istálló!</button>`;
+}
+let newCoat = 'pej';
+function bindNew() {
+  newCoat = 'pej';
+  $('tCoats').onclick = (e) => { const b = e.target.closest('button'); if (!b) return; newCoat = b.dataset.c; document.querySelectorAll('#tCoats .chip').forEach((c) => c.classList.toggle('on', c === b)); horse.setCoat(newCoat, { blaze: true }); };
+  $('tStart').onclick = () => { sound.init(); startNew($('tName').value.trim() || 'Csillag', newCoat); };
+}
+function startNew(name, coat) {
+  S = DEFAULT(); S.name = name; S.coat = coat; R.energy = 100;
+  props.horseshoes.items.forEach((it) => (it.taken = false));
+  applyLook(); save(); enterCare();
+}
+
+function openBigMap() {
+  const c = $('bigc'), ctx = c.getContext('2d'), W = c.width;
+  ctx.drawImage(mapCanvas, 0, 0, W, W);
+  const k = W / SIZE, toS = (x, z) => [(x + HALF) * k, (z + HALF) * k];
+  ctx.strokeStyle = 'rgba(120,85,50,.0)';
+  for (const it of props.horseshoes.items) if (!it.taken) { const [x, y] = toS(it.x, it.z); ctx.fillStyle = '#ffd23a'; ctx.strokeStyle = '#7a5200'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(x, y, 7, 0, TAU); ctx.fill(); ctx.stroke(); }
+  const label = (txt, x, z) => { const [sx, sy] = toS(x, z); ctx.font = 'bold 20px system-ui'; ctx.textAlign = 'center'; ctx.lineWidth = 5; ctx.strokeStyle = 'rgba(255,255,255,.9)'; ctx.strokeText(txt, sx, sy); ctx.fillStyle = '#2a2733'; ctx.fillText(txt, sx, sy); };
+  label('🏠 Istálló', STABLE.x, STABLE.z - 10); label('🏁 Aréna', ARENA.x, ARENA.z - ARENA.hd - 6); label('Tó', LAKE.x, LAKE.z);
+  const [px, py] = toS(R.x, R.z);
+  ctx.save(); ctx.translate(px, py); ctx.rotate(Math.atan2(Math.cos(R.yaw), Math.sin(R.yaw)));
+  ctx.fillStyle = '#e8402a'; ctx.strokeStyle = '#fff'; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(16, 0); ctx.lineTo(-10, 10); ctx.lineTo(-5, 0); ctx.lineTo(-10, -10); ctx.closePath(); ctx.fill(); ctx.stroke(); ctx.restore();
+  $('bigmap').classList.remove('hide');
+}
+
+function drawMini() {
+  const c = $('mini'), ctx = c.getContext('2d'), W = c.width;
+  ctx.save(); ctx.clearRect(0, 0, W, W); ctx.beginPath(); ctx.arc(W / 2, W / 2, W / 2, 0, TAU); ctx.clip();
+  const view = 190, sc = mapCanvas.width / SIZE, k = W / view;
+  ctx.drawImage(mapCanvas, (R.x + HALF) * sc - view / 2 * sc, (R.z + HALF) * sc - view / 2 * sc, view * sc, view * sc, 0, 0, W, W);
+  const toS = (x, z) => [W / 2 + (x - R.x) * k, W / 2 + (z - R.z) * k];
+  const edge = (x, z, col, r) => { let [sx, sy] = toS(x, z); const dx = sx - W / 2, dy = sy - W / 2, d = Math.hypot(dx, dy); if (d > W / 2 - 10) { sx = W / 2 + dx / d * (W / 2 - 10); sy = W / 2 + dy / d * (W / 2 - 10); } ctx.fillStyle = col; ctx.beginPath(); ctx.arc(sx, sy, r, 0, TAU); ctx.fill(); ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.stroke(); };
+  for (const it of props.horseshoes.items) if (!it.taken && Math.abs(it.x - R.x) < view * 0.6 && Math.abs(it.z - R.z) < view * 0.6) { const [x, y] = toS(it.x, it.z); ctx.fillStyle = '#ffd23a'; ctx.strokeStyle = '#7a5200'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(x, y, 6, 0, TAU); ctx.fill(); ctx.stroke(); }
+  edge(STABLE.x, STABLE.z, '#b5452e', 7);
+  if (R.course.active) { const t = R.course.next > 8 ? props.finishGate : props.course[R.course.next - 1]; edge(t.x, t.z, '#ff8a2a', 7); }
+  ctx.translate(W / 2, W / 2); ctx.rotate(Math.atan2(Math.cos(R.yaw), Math.sin(R.yaw)));
+  ctx.fillStyle = '#e8402a'; ctx.strokeStyle = '#fff'; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(14, 0); ctx.lineTo(-9, 9); ctx.lineTo(-4, 0); ctx.lineTo(-9, -9); ctx.closePath(); ctx.fill(); ctx.stroke();
+  ctx.restore();
+}
+
+function toast(txt, cls = '') {
+  const t = document.createElement('div'); t.className = 'tst ' + cls; t.textContent = txt;
+  const box = $('toast'); box.appendChild(t); while (box.children.length > 3) box.removeChild(box.firstChild);
+  setTimeout(() => { t.style.transition = 'opacity .4s'; t.style.opacity = '0'; setTimeout(() => t.remove(), 400); }, 2600);
+}
+function addCoins(n) { S.coins = Math.max(0, S.coins + n); }
+
+function updateHud() {
+  const st = S.stats;
+  for (const k of ['food', 'water', 'clean', 'mood']) {
+    const e = $('hb_' + k); e.querySelector('s').style.width = st[k].toFixed(0) + '%'; e.classList.toggle('low', st[k] < 25);
+  }
+  $('coinN').textContent = S.coins; $('shoeN').textContent = `${S.shoes.length}/${props.horseshoes.items.length}`;
+  const maxE = 40 + 0.6 * Math.min(st.food, st.water);
+  $('energy').querySelector('s').style.width = (R.energy / 100 * 100).toFixed(0) + '%';
+  $('energy').querySelector('s').style.background = R.tired ? '#e0533d' : R.energy > maxE - 1 ? '#ffd34d' : '#ffd34d';
+  $('btnGallop').classList.toggle('dis', R.tired);
+  $('gaitlbl').textContent = R.jump.active ? 'Ugrás!' : GAIT_HU[R.gait];
+  // környezeti gombok
+  const ctxEl = $('ctx'); let html = '';
+  if (Math.hypot(R.x - TIE.x, R.z - TIE.z) < 10 && R.v < 3) html += '<button class="cbtn" data-c="stable">🏠 Istálló</button>';
+  if (WATER - world.heightAt(R.x, R.z) > 0.05 && R.v < 1.5 && R.drink <= 0) html += '<button class="cbtn" data-c="drink">💧 Itatás</button>';
+  if (ctxEl.dataset.h !== html) { ctxEl.dataset.h = html; ctxEl.innerHTML = html; ctxEl.querySelectorAll('button').forEach((b) => b.onclick = () => { if (b.dataset.c === 'stable') enterCare(); if (b.dataset.c === 'drink') { R.drink = 3.5; S.tut.water = true; } }); }
+  if (R.course.active) {
+    $('ctime').textContent = (time - R.course.t0).toFixed(1); $('cfault').textContent = R.course.faults;
+    $('cnext').textContent = R.course.next > 8 ? '→ CÉL' : `Köv.: ${R.course.next}.`;
+  }
+}
+function updateCareStats() {
+  const st = S.stats;
+  for (const k of ['food', 'water', 'clean', 'mood']) { const e = $('cs_' + k); e.querySelector('s').style.width = st[k].toFixed(0) + '%'; e.classList.toggle('low', st[k] < 25); }
+  $('careCoinN').textContent = S.coins;
+  if (!S.tut.done && curTab === 'care') {
+    const sig = [S.tut.fed, S.tut.water, S.tut.brush, !!(S.tack.saddle && S.tack.bridle)].join();
+    if (sig !== updateCareStats.sig) { updateCareStats.sig = sig; renderPane(); }
+  }
+}
+
+// ---------- fő ciklus ----------
+let last = performance.now();
+function frame(now) {
+  requestAnimationFrame(frame);
+  const raw = (now - last) / 1000; last = now;
+  const dt = Math.min(0.05, raw);
+  if (window.__freeze) return;
+  if (!document.hidden) { update(R.paused ? 0 : dt); renderer.render(scene, camera); }
+  // automatikus minőségcsökkentés lassú gépen
+  autoQ.acc += raw; autoQ.n++;
+  if (autoQ.acc > 3) {
+    const avg = autoQ.acc / autoQ.n;
+    if (avg > 0.034 && R.mode === 'ride' && !window.__noAuto) {
+      if (pixelRatio > 1.01) { pixelRatio = Math.max(1, pixelRatio - 0.25); renderer.setPixelRatio(pixelRatio); onResize(); }
+      else if (S && S.quality !== 'gyors' && avg > 0.045) { S.quality = 'gyors'; applyQuality('gyors'); toast('A grafikát gyorsabbra állítottam.'); }
+    }
+    autoQ.acc = 0; autoQ.n = 0;
+  }
+}
+
+function update(dt) {
+  time += dt;
+  let hs = { mode: 'ride' };
+  if (R.mode === 'ride') rideUpdate(dt);
+  else hs = careUpdate(dt);
+  if (horse.happyT > 0) { horse.happyT -= dt; hs.happy = true; }
+  const gy = groundY(R.x, R.z);
+  // test dőlése a terephez
+  const fx = Math.sin(R.yaw), fz = Math.cos(R.yaw);
+  const hf = groundY(R.x + fx * 0.8, R.z + fz * 0.8), hb = groundY(R.x - fx * 0.75, R.z - fz * 0.75);
+  R.pitch = damp(R.pitch, R.jump.active ? 0 : Math.atan2(hb - hf, 1.55), 8, dt);
+  R.roll = damp(R.roll, clamp(-R.yawRate * R.v * 0.03, -0.18, 0.18), 5, dt);
+  horse.root.position.set(R.x, Math.max(gy, (hf + hb) / 2 - 0.02) + R.lift, R.z);
+  horse.root.rotation.set(R.pitch, R.yaw, R.roll);
+  const st = { gait: R.mode === 'ride' ? (R.drink > 0 ? 'stand' : R.gait) : 'stand', v: R.mode === 'ride' ? R.v : 0, yawRate: R.yawRate, jumpT: R.jump.active ? R.jump.t : -1, ...hs };
+  if (R.mode === 'ride' && R.drink > 0) { st.headDown = 1; }
+  if (R.refuse > 0) st.jumpT = -1;
+  const events = horse.update(dt, st);
+  if (R.refuse > 0) { horse.body.rotation.x -= Math.sin(clamp(R.refuse / 1.1, 0, 1) * Math.PI) * 0.18; horse.neck.rotation.x -= Math.sin(clamp(R.refuse / 1.1, 0, 1) * Math.PI) * 0.25; }
+  // patadobogás
+  if (R.mode === 'ride') for (const i of events) {
+    horse.legs[i].hoof.getWorldPosition(tmpV); const sf = surfaceAt(tmpV.x, tmpV.z);
+    sound.hoof(sf, R.v);
+    if ((sf === 'sand' || sf === 'hard') && R.v > 3) for (let k = 0; k < 2; k++) parts.dust.emit(tmpV, -fx * R.v * 0.15 + (Math.random() - 0.5) * 0.6, 0.3 + Math.random() * 0.6, -fz * R.v * 0.15 + (Math.random() - 0.5) * 0.6, 0.9 + Math.random() * 0.5, 0.35, dustColor(tmpV.x, tmpV.z), -0.3, 2.2);
+    if (sf === 'water') for (let k = 0; k < 4; k++) parts.dust.emit(tmpV.setY(WATER + 0.05), (Math.random() - 0.5) * 1.5, 1.2 + Math.random() * 1.5, (Math.random() - 0.5) * 1.5, 0.6, 0.18, new THREE.Color('#e8f4ff'), -9, 0.5);
+  }
+  // lovas
+  const mounted = R.mode === 'ride';
+  rider.root.visible = mounted;
+  horse.root.updateMatrixWorld(true);
+  if (mounted) rider.update(dt, { gait: st.gait, v: R.v, jumpT: st.jumpT, yawRate: R.yawRate });
+  horse.placeStirrups(mounted ? rider.feetBody : null);
+  updateReins(mounted);
+  // kamera
+  updateCamera(dt);
+  // környezet
+  const focus = R.mode === 'ride' ? horse.root.position : cam.target;
+  grass.update(focus.x, focus.z, time, R.mode === 'ride' ? horse.root.position : { x: R.x, z: R.z });
+  world.updateChunks(camera.position);
+  world.waterUniforms.uTime.value = time; world.treeUniforms.uTime.value = time;
+  world.sky.position.copy(camera.position);
+  props.update(dt); props.horseshoes.update(time, camera.position);
+  for (const k in parts) parts[k].update(dt);
+  // nap és árnyék követése
+  const tx = Math.round(focus.x / 0.5) * 0.5, tz = Math.round(focus.z / 0.5) * 0.5;
+  sun.target.position.set(tx, groundY(tx, tz), tz); sun.position.copy(sun.target.position).addScaledVector(SUN_DIR, 90);
+  // következő akadály jelzése
+  if (R.course.active) {
+    const t = R.course.next > 8 ? props.finishGate : props.course[R.course.next - 1];
+    arrow.visible = true; arrow.position.set(t.x, (t.h || 1.0) + 2.9 + Math.sin(time * 4) * 0.15, t.z); arrow.rotation.y = time * 2;
+  } else arrow.visible = false;
+  // hang
+  if (sound.ctx) {
+    sound.wind(R.mode === 'ride' ? R.v : 0);
+    birdT -= dt; if (birdT < 0) { birdT = 3 + Math.random() * 8; if (world.forestAt(R.x, R.z) > 0.2 || Math.random() < 0.5) sound.bird(); }
+    if (R.mode !== 'ride' && Math.random() < dt * 0.04) sound.snort();
+  }
+  // HUD
+  hudT -= dt;
+  if (hudT < 0 && S) { hudT = 0.2; if (R.mode === 'ride') updateHud(); else if (R.mode === 'care') updateCareStats(); }
+  if (R.mode === 'ride' && S) drawMiniMaybe(dt);
+  saveT += dt; if (saveT > 6 && S && R.mode !== 'title') { saveT = 0; save(); }
+}
+let miniT = 0;
+function drawMiniMaybe(dt) { miniT += dt; if (miniT > 0.066) { miniT = 0; drawMini(); } }
+
+function updateReins(mounted) {
+  const vis = horse.tack.bridle.visible;
+  reins.forEach((r) => (r.mesh.visible = vis));
+  if (!vis) return;
+  for (let i = 0; i < 2; i++) {
+    const a = horse.bitWorld(i, tmpV.clone());
+    let b;
+    if (mounted) b = rider.handWorld(i, new THREE.Vector3());
+    else { const s = horse.neckSmp[3]; b = horse.neck.localToWorld(s.p.clone().addScaledVector(s.U, s.ry + 0.01).addScaledVector(s.S, (i === 0 ? 1 : -1) * 0.02)); }
+    const sag = mounted ? lerp(0.07, 0.025, clamp(R.v / 10, 0, 1)) : 0.12;
+    const pts = [];
+    for (let k = 0; k <= 10; k++) {
+      const t = k / 10; const p = a.clone().lerp(b, t); p.y -= Math.sin(Math.PI * t) * sag; pts.push(p);
+    }
+    reins[i].update(pts);
+  }
+}
+
+function updateCamera(dt) {
+  cam.user += dt;
+  let tgt, dist;
+  if (R.mode === 'ride') {
+    const fx = Math.sin(R.yaw), fz = Math.cos(R.yaw);
+    tgt = tmpV3.set(R.x + fx * 0.5, groundY(R.x, R.z) + 1.85 + R.lift * 0.45, R.z + fz * 0.5);
+    dist = lerp(5.4, 8.2, clamp(R.v / 12.5, 0, 1)) * (innerWidth < innerHeight ? 1.22 : 1);
+    if (cam.user > 1.3 && R.v > 0.5) { cam.yaw = dampAngle(cam.yaw, R.yaw, 1.7 * clamp(R.v / 3, 0.3, 1), dt); cam.pitch = damp(cam.pitch, 0.24, 1.2, dt); }
+    cam.target.x = damp(cam.target.x, tgt.x, 14, dt); cam.target.z = damp(cam.target.z, tgt.z, 14, dt); cam.target.y = damp(cam.target.y, tgt.y, 7, dt);
+  } else {
+    if (R.mode === 'title') { cam.yaw += dt * 0.08; tgt = tmpV3.set(R.x, groundY(R.x, R.z) + 1.05, R.z); }
+    else tgt = tmpV3.set(TIE.x + 0.25, 1.15, TIE.z);
+    cam.target.lerp(tgt, 1 - Math.exp(-dt * 5));
+    dist = (R.mode === 'title' ? 5.4 : 4.3) * (cam.zoom || 1) * (innerWidth < innerHeight ? 1.5 : 1);
+    // fekvő képernyőn a jobb oldali panel miatt a lovat balra toljuk
+  }
+  if (cam.fixDist) dist = cam.fixDist;
+  cam.dist = damp(cam.dist, dist, 3, dt);
+  const cp = Math.cos(cam.pitch), sp = Math.sin(cam.pitch);
+  camera.position.set(cam.target.x - Math.sin(cam.yaw) * cp * cam.dist, cam.target.y + sp * cam.dist, cam.target.z - Math.cos(cam.yaw) * cp * cam.dist);
+  const gyc = world.heightAt(camera.position.x, camera.position.z) + 0.5;
+  if (camera.position.y < gyc) camera.position.y = gyc;
+  if (cam.shake > 0) { cam.shake -= dt; camera.position.y += (Math.random() - 0.5) * cam.shake * 0.4; }
+  camera.lookAt(cam.target);
+  if (R.mode !== 'ride' && innerWidth > innerHeight) {
+    camera.setViewOffset(innerWidth, innerHeight, Math.min(R.mode === 'title' ? 230 : 190, innerWidth * 0.24), 0, innerWidth, innerHeight);
+  } else if (R.mode !== 'ride') {
+    camera.setViewOffset(innerWidth, innerHeight, 0, innerHeight * (R.mode === 'title' ? 0.24 : 0.26), innerWidth, innerHeight);
+  } else if (camera.view && camera.view.enabled) camera.clearViewOffset();
+}
+
+setTimeout(init, 40);
