@@ -3,7 +3,7 @@ import fs from 'fs';
 const r = await build({ entryPoints: ['src/main.js'], bundle: true, minify: true, format: 'iife', write: false, target: ['safari15'], legalComments: 'none' });
 const js = r.outputFiles[0].text.replace(/<\/script/g, '<\\/script');
 let html = fs.readFileSync('template.html', 'utf8');
-const pwa = process.argv.includes('--pwa') ? '<link rel="manifest" href="manifest.webmanifest">\n<link rel="apple-touch-icon" href="icon-180.png">\n<link rel="icon" href="icon-192.png">' : '';
+const pwa = process.argv.includes('--pwa') ? '<link rel="manifest" href="manifest.webmanifest">\n<link rel="apple-touch-icon" href="icon-180.png?v=2">\n<link rel="icon" href="icon-192.png?v=2">' : '';
 html = html.replace('<!--PWA-->', pwa).replace('/*BUNDLE*/', () => js + (process.argv.includes('--pwa') ? "\nif('serviceWorker' in navigator&&location.protocol==='https:'){navigator.serviceWorker.register('sw.js').catch(()=>{})}" : ''));
 fs.mkdirSync('dist', { recursive: true });
 const out = process.argv.includes('--pwa') ? 'dist/pwa/index.html' : 'dist/index.html';
