@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { loft, limb, shell, GLSL_NOISE } from './geom.js';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { clamp, lerp, smoothstep, damp, mulberry32 } from './noise.js';
 
 export const COATS = {
@@ -80,7 +81,7 @@ export class Horse {
     this.hairTex = hairTexture();
     this.hairMat = new THREE.MeshStandardMaterial({ color: '#111', map: this.hairTex, alphaTest: 0.38, side: THREE.DoubleSide, roughness: 0.55, envMapIntensity: 1.2 });
     this.hoofMat = new THREE.MeshPhysicalMaterial({ color: '#2b2520', roughness: 0.35, clearcoat: 0.6, clearcoatRoughness: 0.3 });
-    this.meshes = [];
+    this.meshes = []; this.detail = [];
     const add = (parent, geo, mat, shadow = true) => { const m = new THREE.Mesh(geo, mat); m.castShadow = shadow; m.receiveShadow = true; parent.add(m); this.meshes.push(m); return m; };
     this._add = add;
 
@@ -124,15 +125,19 @@ export class Horse {
       const b = (sv, v, side, r, a) => { const p = this.headPt(sv, v, side); return [Math.abs(p.x), p.y, p.z, r, r, r, a]; };
       sculpt(headGeo, [b(0.2, -0.55, 1, 0.07, 0.016), b(0.34, 0.15, 1, 0.05, 0.008), b(0.9, 0.3, 1, 0.03, 0.009), [0, ...this.headPt(0.95, -0.9, 0).toArray().slice(1), 0.035, 0.03, 0.035, 0.012], b(0.24, 0.8, 1, 0.035, 0.007)]);
     }
-    add(this.head, headGeo, this.mats.head);
-    this.mats.head.userData.u.uFace.value.copy(U); this.mats.head.userData.u.uFaceD.value.copy(D);
-    // szem, orrlyuk
     const eyeM = new THREE.MeshPhysicalMaterial({ color: '#120a06', roughness: 0.1, clearcoat: 1, clearcoatRoughness: 0.05, envMapIntensity: 1.6 });
+    // szem, szemhéj, orrlyuk – a fej hálójába / egy közös hálóba olvasztva (kevesebb rajzhívás)
+    const place = (g, pos, scl, rotY = 0) => { const m = new THREE.Matrix4().compose(pos, new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), rotY), scl); g.applyMatrix4(m); if (g.index) g = g.toNonIndexed(); g.deleteAttribute('uv'); return g; };
+    const eyeParts = [], lidParts = [];
     for (const s of [-1, 1]) {
-      const e = add(this.head, new THREE.SphereGeometry(0.03, 14, 12), eyeM, false); e.scale.set(0.75, 0.95, 1.2); e.position.copy(this.headPt(0.27, 0.56, s, 0.92));
-      const lid = add(this.head, new THREE.TorusGeometry(0.03, 0.007, 6, 16), this.mats.head, false); lid.position.copy(e.position); lid.rotation.y = Math.PI / 2 + s * 0.25; lid.scale.set(1, 0.95, 1.2);
-      const n = add(this.head, new THREE.SphereGeometry(0.019, 8, 6), eyeM, false); n.scale.set(0.7, 1.3, 0.8); n.position.copy(this.headPt(0.92, 0.28, s, 0.95));
+      const ep = this.headPt(0.27, 0.56, s, 0.92);
+      eyeParts.push(place(new THREE.SphereGeometry(0.03, 14, 12), ep, new THREE.Vector3(0.75, 0.95, 1.2)));
+      lidParts.push(place(new THREE.TorusGeometry(0.03, 0.007, 6, 16), ep, new THREE.Vector3(1, 0.95, 1.2), Math.PI / 2 + s * 0.25));
+      eyeParts.push(place(new THREE.SphereGeometry(0.019, 8, 6), this.headPt(0.92, 0.28, s, 0.95), new THREE.Vector3(0.7, 1.3, 0.8)));
     }
+    const headAll = mergeGeometries([headGeo.toNonIndexed(), ...lidParts]);
+    add(this.head, headAll, this.mats.head);
+    const eyes = add(this.head, mergeGeometries(eyeParts), eyeM, false); this.detail.push(eyes);
     // fülek
     this.ears = [];
     for (const s of [-1, 1]) {
@@ -159,14 +164,14 @@ export class Horse {
       for (const [L, prof, rest, mat] of segs) {
         const g = first ? parent : new THREE.Group();
         if (!first) { g.position.y = -this.tail[this.tail.length - 1].L * 0.92; this.tail[this.tail.length - 1].g.add(g); }
-        const isHair = mat === this.maneMat, k = isHair ? 0.55 : 1;
-        add(g, limb(L, prof.map(([t, a, b]) => [t, a * k, b * k, 0]), 10), mat);
+        const isHair = mat === this.maneMat;
+        if (!isHair) add(g, limb(L, prof.map(([t, a, b]) => [t, a, b, 0]), 10), mat);
         // szőrkártyák a tengely körül
         {
           const C = new Cards(), idx = this.tail.length, K = 6;
           const rad = (t) => { let i = 0; while (i < prof.length - 2 && prof[i + 1][0] < t) i++; const a = prof[i], b = prof[i + 1]; return lerp(a[1], b[1], clamp((t - a[0]) / (b[0] - a[0]), 0, 1)); };
           for (let c = 0; c < K; c++) {
-            const an = (c / K) * Math.PI + (idx % 2) * 0.25; const dir = new THREE.Vector3(Math.cos(an), 0, Math.sin(an)), nd = dir.clone().negate();
+            const an = (c / K) * Math.PI + (idx % 2) * 0.25 + 0.1; const dir = new THREE.Vector3(Math.cos(an), 0, Math.sin(an)), nd = dir.clone().negate();
             const rows = [];
             for (let q = 0; q <= 3; q++) {
               const tt = q / 3, y = 0.03 - tt * L * 1.15;
@@ -177,7 +182,7 @@ export class Horse {
             }
             C.strip(rows);
           }
-          const tc = new THREE.Mesh(C.geo(), this.hairMat); tc.castShadow = true; g.add(tc);
+          const tc = new THREE.Mesh(C.geo(), this.hairMat); tc.castShadow = true; g.add(tc); this.meshes.push(tc);
         }
         g.rotation.x = rest; this.tail.push({ g, L, rest });
         first = false;
@@ -273,7 +278,7 @@ export class Horse {
       C.strip(rows);
     }
     this.maneCards = C.geo(); this.maneCardBase = this.maneCards.attributes.position.array.slice(); this.maneCardW = C.w;
-    const mc = new THREE.Mesh(this.maneCards, this.hairMat); mc.castShadow = true; this.neck.add(mc);
+    const mc = new THREE.Mesh(this.maneCards, this.hairMat); mc.castShadow = true; this.neck.add(mc); this.detail.push(mc);
     // üstök
     const D = this.headD, U = this.headU;
     const fp = (t, o) => D.clone().multiplyScalar(t).addScaledVector(U, o).toArray();
@@ -295,7 +300,7 @@ export class Horse {
         }
         C.strip(rows);
       }
-      this.head.add(new THREE.Mesh(C.geo(), this.hairMat));
+      const fc = new THREE.Mesh(C.geo(), this.hairMat); this.head.add(fc); this.detail.push(fc);
     }
   }
 
@@ -400,6 +405,7 @@ export class Horse {
     this.mats.head.userData.u.uBlaze.value = blaze ? 1 : 0;
     this.maneMat.color.set(c.mane).multiplyScalar(0.8); this.hairMat.color.set(c.mane);
   }
+  setDetail(on) { if (this._det === on) return; this._det = on; for (const m of this.detail) m.visible = on; }
   setDirt(d) { for (const k in this.mats) { const m = this.mats[k]; m.userData.u.uDirt.value = d; m.clearcoat = 0.02 + 0.24 * (1 - d); m.sheen = 0.15 + 0.4 * (1 - d); m.roughness = 0.5 + d * 0.25; } }
 
   setTack(t) {

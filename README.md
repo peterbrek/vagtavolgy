@@ -1,19 +1,27 @@
 # Vágtavölgy
 
-3D lovas játék iPhone-ra (és iPadre). Saját lovad van, akivel szabadon lovagolhatsz egy völgyben: réten, erdőben, a tó partján és a hegyek lábánál. Útközben akadályokat ugratsz, aranypatkókat gyűjtesz, otthon pedig gondozod és felszereled a lovat.
+3D lovas játék iPhone-ra (és iPadre). Saját lovad van, akivel szabadon lovagolhatsz egy völgyben: réten, erdőben, szurdokban, a tó partján, a tanyán és a várromnál. Útközben akadályokat ugratsz, aranypatkókat, virágokat és almát gyűjtesz, vadlovakkal barátkozol, otthon pedig gondozod és felszereled a lovat.
 
 Az app egyetlen statikus weboldal. Nincs szükség szerverre, fiókra vagy telepítésre. A kezdőképernyőre téve az első betöltés után internet nélkül is működik.
 
 ## Mi van benne
 
-- **Szabad lovaglás** egy kb. 700 × 700 méteres völgyben. Van benne ösvény, erdő, tó és hegyek.
+- **Szabad lovaglás** egy kb. 1000 × 1000 méteres völgyben, körbefutó ösvénnyel. Tájak:
+  - **Szurdok** homokkő sziklafalakkal, a falon lezúduló **vízeséssel** és medencével, ahonnan **patak** fut le a tóba (gázlóval).
+  - **Tó** kacsákkal, a partján **nyírfás**.
+  - **Tanya** házzal, csűrrel, kúttal, **almáskerttel**, **veteményessel** és **birkakarámmal**, mellette **levendulamező** pillangókkal.
+  - **Várrom** egy dombtetőn, toronnyal és zászlóval.
+  - **Őszi erdő** narancs és vörös lombbal, nagy **fenyves** és **lombos erdő** őzekkel, **sziklás fennsík**.
+  - **Vadlovak rétje**, ahol öt vadló, köztük egy csikó legel.
+- **Állatok:** vadló-ménes (megijed, ha vágtában rohansz feléjük, de ha lassan közelítesz és megállsz, odajönnek), őzek, nyulak, birkák, kacsák, madárrajok, egy sas a szurdok fölött és pillangók.
 - **Négy járásmód:** lépés, ügetés, vágta és galopp, mindegyik saját lábmozgással. A lovas ügetésben könnyít, galoppban előrehajol.
-- **Ugratás:** 8 akadályos díjugrató pálya időméréssel és hibapontokkal, plusz farönkök, sövények, kőfalak és korlátok az ösvény mentén.
+- **Ugratás:** 8 akadályos díjugrató pálya és 10 akadályos **terepugrató pálya**, időméréssel és hibapontokkal. Az ösvény mentén a tájhoz illő akadályok: farönk, sövény, kőfal, korlát, tyúkól, hordók, szalmabála-fal, kapu, sziklafal, az erdőkben kidőlt fák.
 - **Gondozás az istállónál:** széna, víz, zab, alma, répa, csutakolás (ujjal kell húzni a lovon), patakaparás, simogatás.
 - **Felszerelés:** nyereg, kantár, nyeregalátét, fásli és takaró, többféle színben.
 - **Kinézet:** a ló neve és szőrszíne (pej, sárga, fekete, szürke, almásszürke, palomino, tarka), hóka, fehér zokni, valamint a lovas kabátja, sisakja és haja.
 - **Grafika:** fényes szőr, szálas sörény és farok, levélkártyás lombos fák és fenyők, felhők, ragyogás és színkorrekció.
-- **25 aranypatkó** van elrejtve a völgyben. Darabja 5 érmét ér, az érmékből zabot és csemegét lehet venni.
+- **Gyűjtenivalók:** 40 aranypatkó (darabja 5 érme), 6 féle ritka virág (pipacs, búzavirág, harangvirág, gyöngyvirág, havasi gyopár, tavirózsa, mindből 3), 12 felfedezhető hely (darabja 10 érme), valamint alma az almáskertben és répa a veteményesben. Az alma és a répa újranő, a lovad megeheti, egy almával pedig vadló barátot szerezhetsz.
+- **Gyűjtemény** a menüben: patkók, virágok, felfedezések, készlet és vadló barátok.
 
 ## Irányítás
 
@@ -24,11 +32,12 @@ Az app egyetlen statikus weboldal. Nincs szükség szerverre, fiókra vagy telep
 | Ugrás | Ügetésben vagy vágtában nyomd meg a narancs **Ugrás** gombot az akadály előtt. Ha korán nyomod, a ló kivárja a jó elugrási pontot. |
 | Körbenézés | Jobb oldalon húzd az ujjad. |
 | Istálló | Az istálló közelében megjelenik az **Istálló** gomb, de a menüből bárhonnan haza lehet menni. |
-| Itatás | Sétálj be a tóba, és nyomd meg az **Itatás** gombot. |
+| Itatás | Sétálj be a tóba, a patakba vagy a vízesés medencéjébe, és nyomd meg az **Itatás** gombot. |
+| Vadló etetése | Ha van almád, és egy vadló mellett állsz, megjelenik az **Almát adok** gomb. |
 
-## Díjugratás
+## Díjugratás és terepugratás
 
-Az aréna zöld **START** kapuján átlovagolva indul az idő. Az akadályokat sorban, 1-től 8-ig kell átugrani (a narancs nyíl mutatja a következőt), utána a piros **CÉL** kapun kell átmenni. A leverés és a megtorpanás 4-4 hibapontot ér, a harmadik megtorpanás kiesést jelent. A legjobb eredményt a játék megjegyzi.
+A zöld **START** kapun átlovagolva indul az idő. A díjugrató pálya az arénában van (8 akadály), a terepugrató pálya a tanyától keletre eső réten (10 akadály). Az akadályokat sorban kell átugrani (a narancs nyíl és a térkép mutatja a következőt), utána a piros **CÉL** kapun kell átmenni. A leverés és a megtorpanás 4-4 hibapontot ér, a harmadik megtorpanás kiesést jelent. A legjobb eredményt pályánként megjegyzi a játék. Mindkét pályára a menüből is oda lehet ugrani.
 
 ## Cím
 
@@ -53,6 +62,7 @@ A menüben (☰ gomb) a **Grafika** beállítás háromállású: *Gyors*, *Norm
 - A ló, a felszerelés, az állapotjelzők, az érmék, a megtalált aranypatkók és a legjobb köridő automatikusan mentődik a telefonra.
 - A mentés ahhoz a helyhez tartozik, ahol a játék fut: **a Safari és a kezdőképernyős ikon külön tárol**, ezért mindig az ikonról induljatok.
 - Az **Új ló** gomb a címlapon új játékot kezd, a régi mentés helyére.
+- A világ kibővítésekor (2. változat) a ló, a felszerelés, az érmék és a legjobb idők megmaradtak, de az aranypatkók új helyre kerültek, ezért a patkógyűjtés nulláról indul.
 
 ## Frissítés
 

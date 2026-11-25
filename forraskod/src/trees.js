@@ -6,23 +6,40 @@ const BARK_U0 = 0.9, BARK_U1 = 0.99, LEAF_U1 = 0.86;
 
 function atlas(kind) {
   const c = document.createElement('canvas'); c.width = c.height = 256; const x = c.getContext('2d');
-  const r = mulberry32(kind === 'leaf' ? 5 : 8);
+  const r = mulberry32({ leaf: 5, needle: 8, aut: 13, birch: 21, apple: 34 }[kind] || 3);
   // kéreg
-  x.fillStyle = kind === 'leaf' ? '#6b4c33' : '#5a3f2c'; x.fillRect(230, 0, 26, 256);
-  for (let i = 0; i < 60; i++) { x.fillStyle = `rgba(${r() < 0.5 ? '30,20,12' : '150,120,90'},${0.25 + r() * 0.3})`; x.fillRect(230 + r() * 26, r() * 256, 1 + r() * 2, 8 + r() * 30); }
-  if (kind === 'leaf') {
+  if (kind === 'birch') {
+    x.fillStyle = '#ebe7de'; x.fillRect(230, 0, 26, 256);
+    for (let i = 0; i < 40; i++) { x.fillStyle = `rgba(25,22,20,${0.55 + r() * 0.4})`; x.fillRect(230 + r() * 18, r() * 256, 4 + r() * 10, 1.5 + r() * 3); }
+  } else {
+    x.fillStyle = kind === 'needle' ? '#5a3f2c' : '#6b4c33'; x.fillRect(230, 0, 26, 256);
+    for (let i = 0; i < 60; i++) { x.fillStyle = `rgba(${r() < 0.5 ? '30,20,12' : '150,120,90'},${0.25 + r() * 0.3})`; x.fillRect(230 + r() * 26, r() * 256, 1 + r() * 2, 8 + r() * 30); }
+  }
+  if (kind !== 'needle') {
+    const pal = {
+      leaf: () => [85 + r() * 35, 40 + r() * 22, 20 + r() * 20],
+      apple: () => [88 + r() * 30, 42 + r() * 20, 20 + r() * 18],
+      birch: () => [72 + r() * 25, 45 + r() * 20, 30 + r() * 20],
+      aut: () => { const k = r(); return k < 0.45 ? [22 + r() * 16, 75 + r() * 15, 38 + r() * 14] : k < 0.8 ? [40 + r() * 14, 80 + r() * 12, 42 + r() * 12] : [6 + r() * 10, 65 + r() * 15, 32 + r() * 12]; },
+    }[kind];
     const cx = 112, cy = 128, R = 104;
     for (let i = 0; i < 520; i++) {
       const a = r() * Math.PI * 2, d = R * Math.sqrt(r()) * 0.95;
       const px = cx + Math.cos(a) * d, py = cy + Math.sin(a) * d * 0.95;
       const lit = 1 - (py - (cy - R)) / (2 * R) * 0.5 - d / R * 0.15;
-      const h = 85 + r() * 35, sat = 40 + r() * 22, l = (20 + r() * 20) * (0.75 + lit * 0.5);
+      const [h, sat, l0] = pal(); const l = l0 * (0.75 + lit * 0.5);
       x.fillStyle = `hsl(${h},${sat}%,${l}%)`;
       x.save(); x.translate(px, py); x.rotate(r() * Math.PI * 2);
-      const w = 5 + r() * 6, hh = 2.6 + r() * 2.4;
+      const sz = kind === 'birch' ? 0.75 : 1;
+      const w = (5 + r() * 6) * sz, hh = (2.6 + r() * 2.4) * sz;
       x.beginPath(); x.ellipse(0, 0, w, hh, 0, 0, Math.PI * 2); x.fill();
       x.strokeStyle = `rgba(20,40,10,0.35)`; x.lineWidth = 0.6; x.beginPath(); x.moveTo(-w, 0); x.lineTo(w, 0); x.stroke();
       x.restore();
+    }
+    if (kind === 'apple') for (let i = 0; i < 46; i++) {
+      const a = r() * Math.PI * 2, d = 96 * Math.sqrt(r()), px = 112 + Math.cos(a) * d, py = 128 + Math.sin(a) * d;
+      x.fillStyle = r() < 0.8 ? '#c8261f' : '#e0a21c'; x.beginPath(); x.arc(px, py, 4.5 + r() * 1.8, 0, Math.PI * 2); x.fill();
+      x.fillStyle = 'rgba(255,255,255,0.55)'; x.beginPath(); x.arc(px - 1.5, py - 1.5, 1.4, 0, Math.PI * 2); x.fill();
     }
   } else {
     // fenyőág: szár balról jobbra, tűlevelekkel
@@ -70,17 +87,29 @@ class Builder {
   }
 }
 
-function decGeo() {
-  const B = new Builder(), r = mulberry32(44), V = THREE.Vector3;
-  const t = new THREE.CylinderGeometry(0.19, 0.33, 3.8, 8, 1, true); t.translate(0, 1.9, 0); B.addGeo(t, 0.95);
+const DEC = {
+  trunk: [0.19, 0.33, 3.8], br: 1, center: 4.6, seed: 44, quads: 12,
+  clusters: [[1.8, 0, 4.9, 0], [1.45, 1.15, 4.2, 0.35], [1.4, -1.05, 4.3, -0.45], [1.3, 0.25, 5.9, -0.3], [1.2, -0.4, 3.8, 1.05], [1.15, 0.55, 3.9, -1.05], [1.0, -0.7, 5.5, 0.6]],
+};
+const BIRCH = {
+  trunk: [0.1, 0.19, 5.6], br: 0.6, center: 5.8, seed: 46, quads: 10,
+  clusters: [[1.2, 0, 6.4, 0], [1.0, 0.7, 5.5, 0.3], [1.0, -0.6, 5.7, -0.4], [0.95, 0.2, 7.3, -0.2], [0.85, -0.3, 4.9, 0.6], [0.8, 0.4, 5.0, -0.7], [0.75, -0.5, 6.8, 0.4]],
+};
+const APPLE = {
+  trunk: [0.16, 0.26, 2.3], br: 0.75, center: 3.0, seed: 48, quads: 12,
+  clusters: [[1.6, 0, 3.4, 0], [1.3, 1.1, 2.9, 0.3], [1.3, -1.0, 3.0, -0.4], [1.15, 0.3, 4.1, -0.3], [1.1, -0.5, 2.7, 1.0], [1.05, 0.6, 2.8, -1.0]],
+};
+function decGeo(P = DEC) {
+  const B = new Builder(), r = mulberry32(P.seed), V = THREE.Vector3;
+  const t = new THREE.CylinderGeometry(P.trunk[0], P.trunk[1], P.trunk[2], 8, 1, true); t.translate(0, P.trunk[2] / 2, 0); B.addGeo(t, 0.95);
   for (const [rx, rz, y, len] of [[0.75, 0.2, 3.0, 1.9], [-0.7, -0.4, 3.3, 1.7], [0.3, -0.9, 3.6, 1.5], [-0.2, 0.8, 3.9, 1.4]]) {
-    const b = new THREE.CylinderGeometry(0.06, 0.12, len, 6, 1, true); b.translate(0, len / 2, 0); b.rotateZ(rx); b.rotateX(rz); b.translate(0, y, 0); B.addGeo(b, 0.95);
+    const b = new THREE.CylinderGeometry(0.06 * P.br, 0.12 * P.br, len * P.br, 6, 1, true); b.translate(0, len * P.br / 2, 0); b.rotateZ(rx); b.rotateX(rz); b.translate(0, y * P.trunk[2] / 3.8, 0); B.addGeo(b, 0.95);
   }
-  const center = new V(0, 4.6, 0);
-  const clusters = [[1.8, 0, 4.9, 0], [1.45, 1.15, 4.2, 0.35], [1.4, -1.05, 4.3, -0.45], [1.3, 0.25, 5.9, -0.3], [1.2, -0.4, 3.8, 1.05], [1.15, 0.55, 3.9, -1.05], [1.0, -0.7, 5.5, 0.6]];
+  const center = new V(0, P.center, 0);
+  const clusters = P.clusters;
   for (const [R, cx, cy, cz] of clusters) {
     const C = new V(cx, cy, cz);
-    for (let k = 0; k < 12; k++) {
+    for (let k = 0; k < P.quads; k++) {
       const d = new V(r() * 2 - 1, r() * 1.6 - 0.6, r() * 2 - 1).normalize();
       const q = C.clone().addScaledVector(d, R * (0.35 + r() * 0.35));
       const n = d.clone().add(new V(r() - 0.5, r() - 0.5, r() - 0.5)).normalize();
@@ -88,7 +117,7 @@ function decGeo() {
       const s = R * (1.05 + r() * 0.35) / 2;
       const cs = [[-1, -1], [1, -1], [1, 1], [-1, 1]].map(([a, b]) => q.clone().addScaledVector(t1, a * s).addScaledVector(t2, b * s));
       const ns = cs.map((p) => p.clone().sub(center).normalize().add(new V(0, 0.45, 0)).normalize());
-      const shade = cs.map((p) => Math.min(1.15, 0.62 + Math.max(0, (p.y - 3.0) / 3.6) * 0.45 + p.clone().sub(center).length() / 3.2 * 0.18));
+      const shade = cs.map((p) => Math.min(1.15, 0.62 + Math.max(0, (p.y - P.center + 1.6) / 3.6) * 0.45 + p.clone().sub(center).length() / 3.2 * 0.18));
       B.quad(cs[0], cs[1], cs[2], cs[3], ns[0], ns[1], ns[2], ns[3], [[0, 0], [LEAF_U1, 0], [LEAF_U1, 1], [0, 1]], shade);
     }
   }
@@ -142,5 +171,8 @@ export function makeTreeAssets(uTime) {
     };
     return m;
   };
-  return { dec: decGeo(), con: conGeo(), decMat: mk(atlas('leaf')), conMat: mk(atlas('needle')) };
+  return {
+    dec: decGeo(DEC), con: conGeo(), birch: decGeo(BIRCH), apple: decGeo(APPLE),
+    decMat: mk(atlas('leaf')), conMat: mk(atlas('needle')), autMat: mk(atlas('aut')), birchMat: mk(atlas('birch')), appleMat: mk(atlas('apple')),
+  };
 }

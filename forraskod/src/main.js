@@ -1,5 +1,6 @@
 import * as THREE from 'three';
-import { World, TIE, STABLE, ARENA, WATER, HOME, SUN_DIR, HALF, SIZE, LAKE } from './world.js';
+import { World, TIE, STABLE, ARENA, WATER, HOME, SUN_DIR, HALF, SIZE, LAKE, REG, WORLD_VERSION, inRect } from './world.js';
+import { Fauna } from './fauna.js';
 import { buildProps } from './props.js';
 import { Grass } from './grass.js';
 import { Horse, COATS, SADDLES, PALETTE } from './horse.js';
@@ -31,11 +32,15 @@ const DEFAULT = () => ({
   tack: { saddle: null, pad: null, bridle: null, wraps: null, blanket: 'kek' },
   rider: { jacket: '#1f2f5c', helmet: '#1d1d22', hair: 'barna' },
   stats: { food: 55, water: 45, clean: 30, mood: 70 },
-  coins: 15, shoes: [], best: null, cleanJumps: 0, sound: true, quality: isTouch ? 'normal' : 'szep',
+  coins: 15, shoes: [], best: {}, cleanJumps: 0, sound: true, quality: isTouch ? 'normal' : 'szep',
+  inv: { alma: 0, repa: 0 }, flowers: [], found: [], friends: [], worldV: WORLD_VERSION,
   tut: { fed: false, water: false, brush: false, tack: false, done: false, ride: false },
 });
 let S = null;
-function load() { try { const s = localStorage.getItem(KEY); if (!s) return null; const d = DEFAULT(), o = JSON.parse(s); return { ...d, ...o, tack: { ...d.tack, ...o.tack }, rider: { ...d.rider, ...o.rider }, stats: { ...d.stats, ...o.stats }, tut: { ...d.tut, ...o.tut } }; } catch (e) { return null; } }
+function load() { try { const s = localStorage.getItem(KEY); if (!s) return null; const d = DEFAULT(), o = JSON.parse(s); const r = { ...d, ...o, tack: { ...d.tack, ...o.tack }, rider: { ...d.rider, ...o.rider }, stats: { ...d.stats, ...o.stats }, tut: { ...d.tut, ...o.tut }, inv: { ...d.inv, ...(o.inv || {}) } };
+  if (r.best && r.best.faults !== undefined) r.best = { dij: r.best }; if (!r.best) r.best = {};
+  if (r.worldV !== WORLD_VERSION) { r.shoes = []; r.flowers = []; r.found = []; r.worldV = WORLD_VERSION; r.newWorld = true; }
+  return r; } catch (e) { return null; } }
 function save() { if (!S) return; try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) { } }
 
 // ---------- állapot ----------
@@ -50,7 +55,7 @@ const R = {
 const input = { jx: 0, jy: 0, m: 0, gallop: false, jump: false, keys: {} };
 const cam = { yaw: Math.PI, pitch: 0.3, dist: 6, target: new THREE.Vector3(TIE.x, 1.3, TIE.z), user: 9, shake: 0 };
 
-let post, renderer, scene, camera, world, props, grass, horse, rider, sound, sun, hemi, mapCanvas, arrow, reins = [];
+let fauna, post, renderer, scene, camera, world, props, grass, horse, rider, sound, sun, hemi, mapCanvas, arrow, reins = [];
 let parts = {}, time = 0, hudT = 0, saveT = 0, birdT = 5, autoQ = { t: 0, n: 0, acc: 0 }, pixelRatio = 1;
 const tmpV = new THREE.Vector3(), tmpV2 = new THREE.Vector3(), tmpV3 = new THREE.Vector3();
 
@@ -101,7 +106,7 @@ function init() {
   camera = new THREE.PerspectiveCamera(55, innerWidth / innerHeight, 0.1, 1200);
   const q = (S && S.quality) || (isTouch ? 'normal' : 'szep');
   world = new World(scene, q);
-  scene.fog = new THREE.Fog(world.horizon, 90, 480);
+  scene.fog = new THREE.Fog(world.horizon, 80, 440);
   scene.background = world.horizon;
   hemi = new THREE.HemisphereLight('#d9e9ff', '#6f7d48', 1.15); scene.add(hemi);
   sun = new THREE.DirectionalLight('#ffe8c4', 3.1); sun.castShadow = true;
@@ -112,13 +117,15 @@ function init() {
     scene.environment = pm.fromScene(es, 0.04).texture; scene.environmentIntensity = 0.55; pm.dispose();
   }
   post = new Post(renderer, scene, camera);
-  sun.shadow.bias = -0.0004; sun.shadow.normalBias = 0.03;
+  sun.shadow.bias = -0.0004; sun.shadow.normalBias = 0.03; sun.shadow.camera.layers.enable(1);
   scene.add(sun); scene.add(sun.target);
   props = buildProps(world, scene);
   grass = new Grass(world, scene, 'high'); grass.setQuality(q);
   horse = new Horse(); scene.add(horse.root);
   rider = new Rider(horse);
   sound = new Sound();
+  world.paddock = props.paddock;
+  fauna = new Fauna(scene, world, sound);
   const reinMat = new THREE.MeshStandardMaterial({ color: '#4a2c1b', roughness: 0.6 });
   reins = [new DynTube(10, 0.008, reinMat), new DynTube(10, 0.008, reinMat)];
   reins.forEach((r) => scene.add(r.mesh));
@@ -139,7 +146,8 @@ function init() {
   setupInput();
   setupUI();
   addEventListener('resize', onResize); onResize();
-  window.__vv = { info: () => JSON.stringify(renderer.info.render) + JSON.stringify(renderer.info.memory), R, S: () => S, input, cam, horse, rider, world, props, enterCare, mount, setMode: (m) => (R.mode = m), startNew, sound, placeHorse, closeModal, step: (n, d = 1 / 30, r = true) => { for (let i = 0; i < n; i++) update(d); if (r) post.render(); }, render: () => post.render(), camera, renderer: () => renderer };
+  if (S && S.newWorld) { delete S.newWorld; setTimeout(() => toast('A völgy kibővült: szurdok, vízesés, várrom, tanya és vadlovak várnak!', 'gold'), 1500); }
+  window.__vv = { info: () => JSON.stringify(renderer.info.render) + JSON.stringify(renderer.info.memory), R, S: () => S, input, cam, horse, rider, world, props, enterCare, mount, setMode: (m) => (R.mode = m), startNew, sound, placeHorse, closeModal, fauna: () => fauna, step: (n, d = 1 / 30, r = true) => { for (let i = 0; i < n; i++) update(d); if (r) post.render(); }, render: () => post.render(), camera, renderer: () => renderer };
   // első kép
   update(0.016); post.render();
   $('loading').style.opacity = '0'; setTimeout(() => $('loading').classList.add('hide'), 500);
@@ -169,6 +177,7 @@ function onResize() {
 
 function applyLook() {
   props.horseshoes.items.forEach((it) => (it.taken = S.shoes.includes(it.id)));
+  props.flowers.forEach((f) => (f.taken = S.flowers.includes(f.id)));
   horse.setCoat(S.coat, { blaze: S.blaze, socks: S.socks });
   horse.setTack(S.tack);
   rider.setLook(S.rider);
@@ -325,7 +334,7 @@ function refuse(o) {
   const back = 0.6; R.x -= Math.sin(R.yaw) * back; R.z -= Math.cos(R.yaw) * back;
   sound.snort(); S.stats.mood = Math.max(0, S.stats.mood - 3);
   toast('A lovad megtorpant! Nyomd meg időben az Ugrás gombot.', 'bad');
-  if (R.course.active && o.course === R.course.next) {
+  if (R.course.active && o.course === R.course.key && o.num === R.course.next) {
     R.course.faults += 4; R.course.refusals++;
     if (R.course.refusals >= 3) { endCourse(false); toast('Harmadik megtorpanás – kiestél. Próbáld újra!', 'bad'); }
   }
@@ -339,7 +348,7 @@ function onClear(o, dirOk, lift) {
   if (clean) {
     S.cleanJumps++;
     for (let i = 0; i < 10; i++) parts.star.emit(tmpV.set(R.x, groundY(R.x, R.z) + 1.4, R.z), (Math.random() - 0.5) * 3, Math.random() * 2.5, (Math.random() - 0.5) * 3, 0.9, 0.2, new THREE.Color('#ffe08a'), -1, 0);
-    if (!R.course.active) {
+    if (!R.course.active || o.course !== R.course.key) {
       const last = R.cool.get(o.id) || -99;
       if (now - last > 15) { R.cool.set(o.id, now); addCoins(1); toast('Szép ugrás! +1 érme', 'good'); }
       else toast('Szép ugrás!', 'good');
@@ -349,13 +358,13 @@ function onClear(o, dirOk, lift) {
     else sound.thud();
     if (!R.course.active) toast(o.poles.length ? 'Leverte a rudat! Kicsit korábban ugorj.' : 'Hozzáért, de átjutott.', 'bad');
   }
-  if (R.course.active && o.course) {
-    if (o.course === R.course.next && dirOk) {
+  if (R.course.active && o.course === R.course.key) {
+    if (o.num === R.course.next && dirOk) {
       if (!clean) { R.course.faults += 4; toast('Leverés: +4 hibapont', 'bad'); }
-      else toast(`${o.course}. akadály – tiszta!`, 'good');
+      else toast(`${o.num}. akadály – tiszta!`, 'good');
       R.course.next++; R.course.refusals = 0;
-      if (R.course.next > 8) toast('Most lovagolj át a CÉL kapun!', 'good');
-    } else if (o.course !== R.course.next) toast(`Ez nem a soron következő! Most a(z) ${R.course.next}. jön.`);
+      if (R.course.next > R.course.c.jumps.length) toast('Most lovagolj át a CÉL kapun!', 'good');
+    } else if (o.num !== R.course.next) toast(`Ez nem a soron következő! Most a(z) ${R.course.next}. jön.`);
   }
 }
 
@@ -365,11 +374,11 @@ function crossGate(g, dx0, dz0, dx1, dz1) {
   return l0 < 0 && l1 >= 0 && Math.abs(la) < g.hw;
 }
 
-function startCourse() {
+function startCourse(c) {
   props.resetPoles();
-  R.course = { active: true, next: 1, t0: time, faults: 0, refusals: 0, out: 0 };
+  R.course = { active: true, key: c.key, c, next: 1, t0: time, faults: 0, refusals: 0, out: 0 };
   $('course').classList.remove('hide');
-  toast('Rajt! Ugord át az akadályokat sorban, 1-től 8-ig.', 'good');
+  toast(`${c.name}: rajt! Ugord át az akadályokat sorban, 1-től ${c.jumps.length}-ig.`, 'good');
   sound.success();
 }
 function endCourse(finished) {
@@ -380,11 +389,13 @@ function endCourse(finished) {
   const reward = clean ? 25 : 10;
   addCoins(reward);
   let rec = false;
-  if (!S.best || c.faults < S.best.faults || (c.faults === S.best.faults && t < S.best.time)) { S.best = { faults: c.faults, time: t }; rec = true; }
+  const b = S.best[c.key];
+  if (!b || c.faults < b.faults || (c.faults === b.faults && t < b.time)) { S.best[c.key] = { faults: c.faults, time: t }; rec = true; }
+  const B = S.best[c.key];
   sound.success(); if (clean) setTimeout(() => sound.neigh(), 600);
   modal(`<h2>${clean ? '🏆 Hibátlan kör!' : '🎉 Célba értél!'}</h2>
     <div class="res"><div><b>${t.toFixed(1)} mp</b>idő</div><div><b>${c.faults}</b>hibapont</div><div><b>+${reward}</b>érme</div></div>
-    <p>${rec ? '⭐ Új egyéni csúcs!' : `Legjobb: ${S.best.faults} hibapont, ${S.best.time.toFixed(1)} mp`}</p>
+    <p><b>${c.c.name}</b> · ${rec ? '⭐ Új egyéni csúcs!' : `Legjobb: ${B.faults} hibapont, ${B.time.toFixed(1)} mp`}</p>
     <p style="color:#666;font-size:14px">A rajtkapun újra átlovagolva újrakezdheted.</p>
     <button class="big" data-close>Szuper!</button>`);
   save();
@@ -487,10 +498,11 @@ function rideUpdate(dt) {
     const l0 = dx0 * o.f.x + dz0 * o.f.y, l1 = dx1 * o.f.x + dz1 * o.f.y, la = dx1 * o.a.x + dz1 * o.a.y;
     if (l0 * l1 < 0 && Math.abs(la) < o.w / 2 + 0.2 && R.lift > 0.15) onClear(o, l1 > 0, R.lift);
   }
-  if (!R.course.active && crossGate(props.startGate, R.px - props.startGate.x, R.pz - props.startGate.z, nx - props.startGate.x, nz - props.startGate.z)) startCourse();
-  else if (R.course.active && R.course.next > 8 && crossGate(props.finishGate, R.px - props.finishGate.x, R.pz - props.finishGate.z, nx - props.finishGate.x, nz - props.finishGate.z)) endCourse(true);
+  const gx = (g) => crossGate(g, R.px - g.x, R.pz - g.z, nx - g.x, nz - g.z);
+  if (!R.course.active) { for (const c of props.courses) if (gx(c.start)) { startCourse(c); break; } }
+  else if (R.course.next > R.course.c.jumps.length && gx(R.course.c.finish)) endCourse(true);
   if (R.course.active) {
-    R.course.out = world.inArena(nx, nz, 3) ? 0 : R.course.out + dt;
+    R.course.out = R.course.c.inside(nx, nz) ? 0 : R.course.out + dt;
     if (R.course.out > 6 || time - R.course.t0 > 240) { endCourse(false); toast('A kör megszakadt.'); }
   }
   R.px = R.x; R.pz = R.z; R.x = nx; R.z = nz;
@@ -505,6 +517,29 @@ function rideUpdate(dt) {
       if (n === tot) { addCoins(50); toast(`Mind a ${tot} aranypatkó megvan! +50 érme 🏆`, 'gold'); sound.success(); }
       else toast(`Aranypatkó! +5 érme (${n}/${tot})`, 'gold');
       save();
+    }
+  }
+
+  // virágok, alma, répa
+  for (const f of props.flowers) {
+    if (f.taken || Math.abs(f.x - R.x) > 2.6 || Math.abs(f.z - R.z) > 2.6) continue;
+    if (Math.hypot(f.x - R.x, f.z - R.z) < 2.4) {
+      f.taken = true; S.flowers.push(f.id); addCoins(3); sound.coin();
+      const F = props.FLOWERS[f.sp], have = props.flowers.filter((q) => q.sp === f.sp && q.taken).length, all = props.flowers.filter((q) => q.sp === f.sp).length;
+      for (let i = 0; i < 12; i++) parts.star.emit(tmpV.set(f.x, f.y + 0.8, f.z), (Math.random() - 0.5) * 3, Math.random() * 2.5, (Math.random() - 0.5) * 3, 0.9, 0.2, new THREE.Color(F.petal), -2, 0);
+      toast(`${F.name} a gyűjteménybe! (${have}/${all}) +3 érme`, 'gold'); save();
+    }
+  }
+  for (const a of [...props.apples, ...props.carrots]) {
+    if (a.taken || Math.abs(a.x - R.x) > 2.2 || Math.abs(a.z - R.z) > 2.2) continue;
+    if (Math.hypot(a.x - R.x, a.z - R.z) < 2.0) { a.taken = true; a.back = time + 150; S.inv[a.kind]++; sound.munch(); toast(a.kind === 'alma' ? `Felvettél egy almát! 🍎 (${S.inv.alma} db)` : `Kihúztál egy répát! 🥕 (${S.inv.repa} db)`, 'good'); }
+  }
+  R.lmT = (R.lmT || 0) - dt;
+  if (R.lmT <= 0) {
+    R.lmT = 0.5;
+    for (const L of props.landmarks) if (!S.found.includes(L.key) && Math.hypot(L.x - R.x, L.z - R.z) < L.r) {
+      S.found.push(L.key); addCoins(10); sound.success();
+      toast(`Felfedezted: ${L.name}! +10 érme (${S.found.length}/${props.landmarks.length})`, 'gold'); save();
     }
   }
 
@@ -530,7 +565,8 @@ function dbg(t) { const l = R.log || (R.log = []); l.push(t); if (l.length > 60)
 function msgOnce(key, txt, cool = 4) { if ((R.msgCool[key] || -99) + cool < time) { R.msgCool[key] = time; toast(txt); } }
 function dustColor(x, z) { return world.inArena(x, z) ? new THREE.Color('#cdb48a') : world.inYard(x, z) ? new THREE.Color('#a89c88') : new THREE.Color('#9b8263'); }
 function surfaceAt(x, z) {
-  if (WATER - world.heightAt(x, z) > 0.02) return 'water';
+  if (WATER - world.heightAt(x, z) > 0.02 || world.creekDist(x, z) < 1.7 || Math.hypot(x - world.pool.x, z - world.pool.z) < 5.5) return 'water';
+  if (world.canyonDist(x, z) < 9) return 'hard';
   if (world.inArena(x, z)) return 'sand'; if (world.inYard(x, z)) return 'hard';
   if (world.pathDist(x, z) < 1.8) return 'sand'; return 'grass';
 }
@@ -589,8 +625,8 @@ const ACTIONS = [
   { id: 'hay', ico: '🌾', name: 'Széna', sub: 'ingyen' },
   { id: 'water', ico: '💧', name: 'Víz', sub: 'ingyen' },
   { id: 'oats', ico: '🥣', name: 'Zab', sub: '3 érme', cost: 3 },
-  { id: 'apple', ico: '🍎', name: 'Alma', sub: '1 érme', cost: 1 },
-  { id: 'carrot', ico: '🥕', name: 'Répa', sub: '1 érme', cost: 1 },
+  { id: 'apple', ico: '🍎', name: 'Alma', sub: '1 érme', cost: 1, inv: 'alma' },
+  { id: 'carrot', ico: '🥕', name: 'Répa', sub: '1 érme', cost: 1, inv: 'repa' },
   { id: 'pet', ico: '❤️', name: 'Simogatás', sub: 'koppints rá' },
 ];
 let curTab = 'care';
@@ -610,7 +646,7 @@ function renderPane() {
       h += `<div id="tut" class="panel" style="margin-bottom:8px;box-shadow:none;background:#fff6e6"><h5>Első lépések</h5>
         ${it(t.fed, 'Adj neki szénát')}${it(t.water, 'Adj neki vizet')}${it(t.brush, 'Csutakold tisztára (✨ 80% fölé)')}${it(S.tack.saddle && S.tack.bridle, 'Nyergeld fel (Felszerelés fül)')}</div>`;
     }
-    h += '<div class="agrid">' + ACTIONS.map((a) => `<button class="act ${a.id === 'brush' && R.brush ? 'on' : ''}" data-act="${a.id}" ${R.careAct || (a.cost && S.coins < a.cost) ? 'disabled' : ''}><i>${a.ico}</i>${a.name}<small>${a.sub}</small></button>`).join('') + '</div>';
+    h += '<div class="agrid">' + ACTIONS.map((a) => `<button class="act ${a.id === 'brush' && R.brush ? 'on' : ''}" data-act="${a.id}" ${R.careAct || (a.cost && S.coins < a.cost && !(a.inv && S.inv[a.inv] > 0)) ? 'disabled' : ''}><i>${a.ico}</i>${a.name}<small>${a.inv && S.inv[a.inv] > 0 ? S.inv[a.inv] + ' db' : a.sub}</small></button>`).join('') + '</div>';
   } else if (curTab === 'tack') {
     const T = S.tack;
     const sec = (title, key, opts) => `<div class="opt"><h4>${title}</h4><div class="chips">${opts}</div></div>`;
@@ -648,7 +684,8 @@ function careClick(e) {
 function doAction(id) {
   const a = ACTIONS.find((x) => x.id === id);
   if (R.careAct && id !== 'brush') return;
-  if (a.cost) { if (S.coins < a.cost) { toast('Nincs elég érméd. Gyűjts aranypatkót vagy ugorj!'); return; } addCoins(-a.cost); }
+  if (a.inv && S.inv[a.inv] > 0) S.inv[a.inv]--;
+  else if (a.cost) { if (S.coins < a.cost) { toast('Nincs elég érméd. Gyűjts aranypatkót vagy ugorj!'); return; } addCoins(-a.cost); }
   if (id === 'brush') { R.brush = !R.brush; $('careHint').textContent = 'Húzd az ujjad a lovon a csutakoláshoz!'; $('careHint').classList.toggle('hide', !R.brush); renderPane(); return; }
   if (id === 'pet') { toast('Koppints a lovadra a simogatáshoz! ❤️'); return; }
   R.brush = false; $('careHint').classList.add('hide');
@@ -734,7 +771,8 @@ function setupUI() {
     if (!b) return; if (b.dataset.close !== undefined) return closeModal();
     const a = b.dataset.m;
     if (a === 'stable') { closeModal(); enterCare(); }
-    if (a === 'arena') { closeModal(); const g = props.startGate; R.x = g.x - g.f.x * 6; R.z = g.z - g.f.y * 6; R.yaw = g.yaw; R.v = 0; R.px = R.x; R.pz = R.z; cam.yaw = R.yaw; toast('Lovagolj át a zöld START kapun!'); }
+    if (a === 'arena' || a === 'terep') { closeModal(); if (R.mode !== 'ride') { if (!S.tack.saddle || !S.tack.bridle) { toast('Előbb nyergeld fel a lovat!'); return; } mount(); } const g = props.courses[a === 'arena' ? 0 : 1].start; placeHorse(g.x - g.f.x * 6, g.z - g.f.y * 6, g.yaw); cam.yaw = R.yaw; toast('Lovagolj át a zöld START kapun!'); }
+    if (a === 'coll') collectionModal();
     if (a === 'map') { closeModal(); openBigMap(); }
     if (a === 'sound') { S.sound = !S.sound; sound.setOn(S.sound); save(); openMenu(); }
     if (a === 'q') { const o = ['gyors', 'normal', 'szep']; S.quality = o[(o.indexOf(S.quality) + 1) % 3]; applyQuality(S.quality); save(); openMenu(); }
@@ -750,12 +788,14 @@ function openMenu() {
     <button class="big" data-close>▶️ Folytatás</button>
     <button class="big alt" data-m="stable">🏠 Vissza az istállóba</button>
     <button class="big alt" data-m="arena">🏁 Díjugrató pálya</button>
+    <button class="big alt" data-m="terep">🌳 Terepugrató pálya</button>
+    <button class="big ghost" data-m="coll">📒 Gyűjtemény</button>
     <button class="big ghost" data-m="map">🗺️ Térkép</button>
     <button class="big ghost" data-m="sound">${S.sound ? '🔊 Hang: be' : '🔇 Hang: ki'}</button>
     <button class="big ghost" data-m="q">⚙️ Grafika: ${qn}</button>
     <button class="big ghost" data-m="help">❓ Súgó</button>
     <button class="big ghost" data-m="title">🚪 Címlap</button>
-    ${S.best ? `<p style="text-align:center;margin-top:12px">🏆 Legjobb kör: ${S.best.faults} hibapont, ${S.best.time.toFixed(1)} mp</p>` : ''}`);
+    ${props.courses.map((c) => S.best[c.key] ? `<p style="text-align:center;margin:8px 0 0">🏆 ${c.name}: ${S.best[c.key].faults} hibapont, ${S.best[c.key].time.toFixed(1)} mp</p>` : '').join('')}`);
 }
 function helpModal() {
   modal(`<h2>Súgó</h2><ul>
@@ -806,8 +846,9 @@ function openBigMap() {
   const k = W / SIZE, toS = (x, z) => [(x + HALF) * k, (z + HALF) * k];
   ctx.strokeStyle = 'rgba(120,85,50,.0)';
   for (const it of props.horseshoes.items) if (!it.taken) { const [x, y] = toS(it.x, it.z); ctx.fillStyle = '#ffd23a'; ctx.strokeStyle = '#7a5200'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(x, y, 7, 0, TAU); ctx.fill(); ctx.stroke(); }
-  const label = (txt, x, z) => { const [sx, sy] = toS(x, z); ctx.font = 'bold 20px system-ui'; ctx.textAlign = 'center'; ctx.lineWidth = 5; ctx.strokeStyle = 'rgba(255,255,255,.9)'; ctx.strokeText(txt, sx, sy); ctx.fillStyle = '#2a2733'; ctx.fillText(txt, sx, sy); };
+  const label = (txt, x, z) => { const [sx, sy] = toS(x, z); ctx.font = 'bold 27px system-ui'; ctx.textAlign = 'center'; ctx.lineWidth = 7; ctx.strokeStyle = 'rgba(255,255,255,.92)'; ctx.strokeText(txt, sx, sy); ctx.fillStyle = '#2a2733'; ctx.fillText(txt, sx, sy); };
   label('🏠 Istálló', STABLE.x, STABLE.z - 10); label('🏁 Aréna', ARENA.x, ARENA.z - ARENA.hd - 6); label('Tó', LAKE.x, LAKE.z);
+  for (const L of props.landmarks) if (!['to'].includes(L.key)) label((S.found.includes(L.key) ? '' : '❔ ') + L.name, L.x, L.z + (L.key === 'vizeses' ? 14 : 0));
   const [px, py] = toS(R.x, R.z);
   ctx.save(); ctx.translate(px, py); ctx.rotate(Math.atan2(Math.cos(R.yaw), Math.sin(R.yaw)));
   ctx.fillStyle = '#e8402a'; ctx.strokeStyle = '#fff'; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(16, 0); ctx.lineTo(-10, 10); ctx.lineTo(-5, 0); ctx.lineTo(-10, -10); ctx.closePath(); ctx.fill(); ctx.stroke(); ctx.restore();
@@ -823,7 +864,7 @@ function drawMini() {
   const edge = (x, z, col, r) => { let [sx, sy] = toS(x, z); const dx = sx - W / 2, dy = sy - W / 2, d = Math.hypot(dx, dy); if (d > W / 2 - 10) { sx = W / 2 + dx / d * (W / 2 - 10); sy = W / 2 + dy / d * (W / 2 - 10); } ctx.fillStyle = col; ctx.beginPath(); ctx.arc(sx, sy, r, 0, TAU); ctx.fill(); ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.stroke(); };
   for (const it of props.horseshoes.items) if (!it.taken && Math.abs(it.x - R.x) < view * 0.6 && Math.abs(it.z - R.z) < view * 0.6) { const [x, y] = toS(it.x, it.z); ctx.fillStyle = '#ffd23a'; ctx.strokeStyle = '#7a5200'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(x, y, 6, 0, TAU); ctx.fill(); ctx.stroke(); }
   edge(STABLE.x, STABLE.z, '#b5452e', 7);
-  if (R.course.active) { const t = R.course.next > 8 ? props.finishGate : props.course[R.course.next - 1]; edge(t.x, t.z, '#ff8a2a', 7); }
+  if (R.course.active) { const c = R.course.c, t = R.course.next > c.jumps.length ? c.finish : c.jumps[R.course.next - 1]; edge(t.x, t.z, '#ff8a2a', 7); }
   ctx.translate(W / 2, W / 2); ctx.rotate(Math.atan2(Math.cos(R.yaw), Math.sin(R.yaw)));
   ctx.fillStyle = '#e8402a'; ctx.strokeStyle = '#fff'; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(14, 0); ctx.lineTo(-9, 9); ctx.lineTo(-4, 0); ctx.lineTo(-9, -9); ctx.closePath(); ctx.fill(); ctx.stroke();
   ctx.restore();
@@ -836,6 +877,27 @@ function toast(txt, cls = '') {
 }
 function addCoins(n) { S.coins = Math.max(0, S.coins + n); }
 
+function feedWild() {
+  const nw = fauna.nearestWild(R.x, R.z); if (!nw || S.inv.alma <= 0) return;
+  S.inv.alma--; sound.munch(); setTimeout(() => sound.nicker(), 500);
+  const hp = nw.w.h.head.localToWorld(new THREE.Vector3(0, -0.2, 0.25)); for (let i = 0; i < 6; i++) heartsAt(hp);
+  if (!S.friends.includes(nw.w.name)) { S.friends.push(nw.w.name); addCoins(10); toast(`${nw.w.name} a barátod lett! 💛 +10 érme (${S.friends.length}/${fauna.wild.length})`, 'gold'); }
+  else toast(`${nw.w.name} örül az almának! 🍎`, 'good');
+  fauna.herd.stillT = 0; fauna.herd.curious = nw.w; save();
+}
+function collectionModal() {
+  const fl = Object.entries(props.FLOWERS).map(([k, F]) => { const all = props.flowers.filter((f) => f.sp === k), got = all.filter((f) => S.flowers.includes(f.id)).length; return `<li><span style="color:${F.petal};text-shadow:0 0 2px #555">●</span> ${F.name}: <b>${got}/${all.length}</b></li>`; }).join('');
+  const lm = props.landmarks.map((L) => `<li>${S.found.includes(L.key) ? '✅' : '⬜'} ${S.found.includes(L.key) ? L.name : '???'}</li>`).join('');
+  const fr = fauna.wild.map((w) => `<li>${S.friends.includes(w.name) ? '💛' : '🤍'} ${S.friends.includes(w.name) ? w.name : '???'}</li>`).join('');
+  modal(`<h2>📒 Gyűjtemény</h2>
+    <p><b>Aranypatkók:</b> ${S.shoes.length}/${props.horseshoes.items.length} &nbsp; <b>Érmék:</b> ${S.coins}</p>
+    <p><b>Készlet:</b> 🍎 ${S.inv.alma} alma, 🥕 ${S.inv.repa} répa <span style="color:#777;font-size:13px">(almáskert és veteményes a tanyán)</span></p>
+    <h3 style="margin:10px 0 4px">Ritka virágok</h3><ul style="margin-top:0">${fl}</ul>
+    <h3 style="margin:10px 0 4px">Felfedezések (${S.found.length}/${props.landmarks.length})</h3><ul style="columns:2;margin-top:0">${lm}</ul>
+    <h3 style="margin:10px 0 4px">Vadló barátok (${S.friends.length}/${fauna.wild.length})</h3><ul style="margin-top:0">${fr}</ul>
+    <p style="color:#666;font-size:14px">Tipp: a vadlovak a tanyától északra legelnek. Ha lassan közelítesz és megállsz, odajönnek – egy almával barátot szerezhetsz.</p>
+    <button class="big" data-close>Bezárás</button>`);
+}
 function updateHud() {
   const st = S.stats;
   for (const k of ['food', 'water', 'clean', 'mood']) {
@@ -850,11 +912,13 @@ function updateHud() {
   // környezeti gombok
   const ctxEl = $('ctx'); let html = '';
   if (Math.hypot(R.x - TIE.x, R.z - TIE.z) < 10 && R.v < 3) html += '<button class="cbtn" data-c="stable">🏠 Istálló</button>';
-  if (WATER - world.heightAt(R.x, R.z) > 0.05 && R.v < 1.5 && R.drink <= 0) html += '<button class="cbtn" data-c="drink">💧 Itatás</button>';
-  if (ctxEl.dataset.h !== html) { ctxEl.dataset.h = html; ctxEl.innerHTML = html; ctxEl.querySelectorAll('button').forEach((b) => b.onclick = () => { if (b.dataset.c === 'stable') enterCare(); if (b.dataset.c === 'drink') { R.drink = 3.5; S.tut.water = true; } }); }
+  if ((WATER - world.heightAt(R.x, R.z) > 0.05 || world.creekDist(R.x, R.z) < 1.8 || Math.hypot(R.x - world.pool.x, R.z - world.pool.z) < 5.5) && R.v < 1.5 && R.drink <= 0) html += '<button class="cbtn" data-c="drink">💧 Itatás</button>';
+  const nw = fauna.nearestWild(R.x, R.z);
+  if (nw && nw.d < 5.5 && R.v < 1.2) html += S.inv.alma > 0 ? `<button class="cbtn" data-c="feedwild">🍎 Almát adok: ${nw.w.name}</button>` : '';
+  if (ctxEl.dataset.h !== html) { ctxEl.dataset.h = html; ctxEl.innerHTML = html; ctxEl.querySelectorAll('button').forEach((b) => b.onclick = () => { if (b.dataset.c === 'stable') enterCare(); if (b.dataset.c === 'drink') { R.drink = 3.5; S.tut.water = true; } if (b.dataset.c === 'feedwild') feedWild(); }); }
   if (R.course.active) {
     $('ctime').textContent = (time - R.course.t0).toFixed(1); $('cfault').textContent = R.course.faults;
-    $('cnext').textContent = R.course.next > 8 ? '→ CÉL' : `Köv.: ${R.course.next}.`;
+    $('cnext').textContent = R.course.next > R.course.c.jumps.length ? '→ CÉL' : `Köv.: ${R.course.next}.`;
   }
 }
 function updateCareStats() {
@@ -925,17 +989,24 @@ function update(dt) {
   // környezet
   const focus = R.mode === 'ride' ? horse.root.position : cam.target;
   grass.update(focus.x, focus.z, time, R.mode === 'ride' ? horse.root.position : { x: R.x, z: R.z });
-  world.updateChunks(camera.position);
+  world.updateChunks(camera.position); world.updateShadowProxies(focus.x, focus.z);
+  R.cullT = (R.cullT || 0) - dt; if (R.cullT <= 0) { R.cullT = 0.25; props.cull(camera.position); }
   world.waterUniforms.uTime.value = time; world.treeUniforms.uTime.value = time;
   world.sky.position.copy(camera.position);
-  props.update(dt); props.horseshoes.update(time, camera.position);
+  props.update(dt); props.horseshoes.update(time, camera.position); props.collectUpdate(time, camera.position);
+  world.fallUniform.value = time;
+  const fev = fauna.update(dt, time, { px: R.x, pz: R.z, pv: R.mode === 'ride' ? R.v : 0, cx: camera.position.x, cz: camera.position.z, mode: R.mode });
+  if (R.mode === 'ride') for (const e of fev) { if (e.type === 'flee') msgOnce('flee', 'A vadlovak megijedtek! Lassan, lépésben közelíts hozzájuk.', 20); if (e.type === 'curious') msgOnce('cur', `${e.name} kíváncsian közelebb jön…`, 25); }
+  { const wb = world.waterfallBase, dw = Math.hypot(camera.position.x - wb.x, camera.position.z - wb.z);
+    if (dw < 70 && Math.random() < dt * 30) parts.dust.emit(tmpV.set(wb.x + (Math.random() - 0.5) * 4, wb.y + 0.3, wb.z + (Math.random() - 0.5) * 4), (Math.random() - 0.5) * 1.5, 0.8 + Math.random() * 1.2, (Math.random() - 0.5) * 1.5, 1.4, 0.7, new THREE.Color('#eef6fb'), -0.3, 2);
+    if (sound.ctx) sound.water(clamp(1 - dw / 70, 0, 1) * 0.3 + clamp(1 - world.creekDist(R.x, R.z) / 25, 0, 1) * 0.08); }
   for (const k in parts) parts[k].update(dt);
   // nap és árnyék követése
   const tx = Math.round(focus.x / 0.5) * 0.5, tz = Math.round(focus.z / 0.5) * 0.5;
   sun.target.position.set(tx, groundY(tx, tz), tz); sun.position.copy(sun.target.position).addScaledVector(SUN_DIR, 90);
   // következő akadály jelzése
   if (R.course.active) {
-    const t = R.course.next > 8 ? props.finishGate : props.course[R.course.next - 1];
+    const c = R.course.c, t = R.course.next > c.jumps.length ? c.finish : c.jumps[R.course.next - 1];
     arrow.visible = true; arrow.position.set(t.x, (t.h || 1.0) + 2.9 + Math.sin(time * 4) * 0.15, t.z); arrow.rotation.y = time * 2;
   } else arrow.visible = false;
   // hang
@@ -971,6 +1042,14 @@ function updateReins(mounted) {
   }
 }
 
+function treeNear(x, z, r) {
+  const i = Math.floor(x / 8), j = Math.floor(z / 8);
+  for (let dj = -1; dj <= 1; dj++) for (let di = -1; di <= 1; di++) {
+    const a = world.circles.get((i + di) * 4096 + (j + dj)); if (!a) continue;
+    for (const c of a) if (c.h === 50 && Math.hypot(c.x - x, c.z - z) < r + c.r * 3) return true;
+  }
+  return false;
+}
 function updateCamera(dt) {
   cam.user += dt;
   let tgt, dist;
@@ -991,6 +1070,10 @@ function updateCamera(dt) {
   cam.dist = damp(cam.dist, dist, 3, dt);
   const cp = Math.cos(cam.pitch), sp = Math.sin(cam.pitch);
   camera.position.set(cam.target.x - Math.sin(cam.yaw) * cp * cam.dist, cam.target.y + sp * cam.dist, cam.target.z - Math.cos(cam.yaw) * cp * cam.dist);
+  // kamera ne kerüljön fa lombjába: húzzuk közelebb
+  if (R.mode === 'ride') {
+    for (let k = 0; k < 6 && treeNear(camera.position.x, camera.position.z, 2.6); k++) camera.position.lerp(cam.target, 0.18);
+  }
   const gyc = world.heightAt(camera.position.x, camera.position.z) + 0.5;
   if (camera.position.y < gyc) camera.position.y = gyc;
   if (cam.shake > 0) { cam.shake -= dt; camera.position.y += (Math.random() - 0.5) * cam.shake * 0.4; }

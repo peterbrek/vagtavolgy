@@ -1,10 +1,9 @@
 import * as THREE from 'three';
-import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { makeNoise2D, fbm, mulberry32, hash2, clamp, lerp, smoothstep } from './noise.js';
 import { canvasTexture } from './geom.js';
 import { makeTreeAssets } from './trees.js';
 
-export const SIZE = 700, HALF = 350, SEG = 240, CELL = SIZE / SEG, G = SEG + 1;
+export const SIZE = 1000, HALF = 500, SEG = 320, CELL = SIZE / SEG, G = SEG + 1;
 export const WATER = -0.9;
 export const HOME = { x: 25, z: 0 };
 export const STABLE = { x: -20, z: -37, w: 13, d: 9 };
@@ -13,72 +12,153 @@ export const ARENA = { x: 45, z: 15, hw: 42, hd: 24 };
 export const LAKE = { x: -175, z: 45, r: 48 };
 export const YARD = { x0: -36, x1: -4, z0: -33, z1: -14 };
 export const SUN_DIR = new THREE.Vector3(0.55, 0.64, 0.42).normalize();
+export const WORLD_VERSION = 2;
 
-const nA = makeNoise2D(11), nB = makeNoise2D(23), nC = makeNoise2D(37), nD = makeNoise2D(53), nE = makeNoise2D(71);
-
-const PATH_CTRL = [[-6, 32], [-40, 75], [-70, 132], [-120, 152], [-178, 124], [-242, 62], [-238, -22], [-200, -112],
-  [-130, -172], [-50, -214], [40, -200], [122, -150], [200, -108], [236, -20], [222, 82], [170, 162], [92, 212], [22, 182], [-14, 108]];
+// Tájegységek
+export const REG = {
+  lavender: { x0: 5, x1: 125, z0: 238, z1: 318 },
+  farmYard: { x0: 136, x1: 178, z0: 262, z1: 302 },
+  farm: { x: 157, z: 289 },
+  orchard: { x0: 184, x1: 242, z0: 236, z1: 298 },
+  garden: { x0: 138, x1: 166, z0: 238, z1: 256 },
+  ruin: { x: 322, z: 292, r: 15 },
+  wild: { x: 195, z: 140, r: 78 },
+  xc: { x: 165, z: -15, r: 75 },
+  birch: { x: -240, z: 262, r: 100 },
+  westwood: { x: -140, z: -150, r: 118 },
+  swwood: { x: -350, z: 90, r: 95 },
+  rocky: { x: 292, z: -168, r: 85 },
+};
+const CANYON_CTRL = [[268, -258], [205, -318], [130, -340], [50, -300], [-30, -335], [-110, -305], [-180, -275], [-238, -240], [-296, -203]];
+export const WATERFALL_T = 0.74;
+const PATH_A = [[-6, 34], [-55, 92], [-115, 128], [-185, 148], [-255, 205], [-240, 300], [-150, 365], [-50, 330], [40, 345], [130, 336], [205, 314], [262, 316], [300, 274], [352, 205], [346, 110], [372, 10], [342, -88], [290, -170]];
+const PATH_B = [[-212, -165], [-128, -105], [-62, -38]];
 
 const COL = {
   grassA: new THREE.Color('#4f7f2c'), grassB: new THREE.Color('#6f9a3a'), dry: new THREE.Color('#a39f55'),
   forest: new THREE.Color('#3d6527'), dirt: new THREE.Color('#8a6c4a'), dirt2: new THREE.Color('#9b7d58'),
   sand: new THREE.Color('#cdbb8c'), mud: new THREE.Color('#6b5f45'), rock: new THREE.Color('#7f7b74'),
-  rock2: new THREE.Color('#999389'), snow: new THREE.Color('#f2f4f7'),
+  rock2: new THREE.Color('#999389'), snow: new THREE.Color('#f2f4f7'), litter: new THREE.Color('#8f6a2e'),
+  birchG: new THREE.Color('#78a443'), gravel: new THREE.Color('#a99a80'), soil: new THREE.Color('#6e5a40'),
+  strata: [new THREE.Color('#b98a5e'), new THREE.Color('#9e6b45'), new THREE.Color('#c9a27a'), new THREE.Color('#8d7a66')],
 };
+
+const nA = makeNoise2D(11), nB = makeNoise2D(23), nC = makeNoise2D(37), nD = makeNoise2D(53), nE = makeNoise2D(71);
+const dist = (x, z, p) => Math.hypot(x - p.x, z - p.z);
+export const rectMask = (x, z, r, blend) => smoothstep(-blend, 0, x - r.x0) * smoothstep(-blend, 0, r.x1 - x) * smoothstep(-blend, 0, z - r.z0) * smoothstep(-blend, 0, r.z1 - z);
+export const inRect = (x, z, r, m = 0) => x > r.x0 - m && x < r.x1 + m && z > r.z0 - m && z < r.z1 + m;
+
+// Távolságmező egy görbéhez 2 m-es rácson (opcionálisan a görbe paraméterével)
+class Field {
+  constructor(pts, reach, withT) {
+    const N = this.N = SIZE / 2;
+    this.d = new Float32Array(N * N).fill(999); this.t = withT ? new Float32Array(N * N) : null;
+    const rc = Math.ceil(reach / 2);
+    pts.forEach((p, k) => {
+      const tp = k / (pts.length - 1);
+      const ci = Math.floor((p.x + HALF) / 2), cj = Math.floor((p.z + HALF) / 2);
+      for (let dj = -rc; dj <= rc; dj++) for (let di = -rc; di <= rc; di++) {
+        const i = ci + di, j = cj + dj; if (i < 0 || j < 0 || i >= N || j >= N) continue;
+        const cx = -HALF + (i + 0.5) * 2, cz = -HALF + (j + 0.5) * 2;
+        const d = Math.hypot(cx - p.x, cz - p.z); const q = j * N + i;
+        if (d < this.d[q]) { this.d[q] = d; if (this.t) this.t[q] = tp; }
+      }
+    });
+  }
+  idx(x, z) { const i = Math.floor((x + HALF) / 2), j = Math.floor((z + HALF) / 2); return i < 0 || j < 0 || i >= this.N || j >= this.N ? -1 : j * this.N + i; }
+  at(x, z) { const q = this.idx(x, z); return q < 0 ? 999 : this.d[q]; }
+  tAt(x, z) { const q = this.idx(x, z); return q < 0 || !this.t ? 0 : this.t[q]; }
+}
 
 export class World {
   constructor(scene, quality) {
     this.scene = scene; this.quality = quality;
     this.group = new THREE.Group(); scene.add(this.group);
     this.circles = new Map(); this.boxes = [];
-    this.buildPath();
+    this.buildCurves();
     this.buildHeights();
     this.buildGrids();
     this.buildTerrain();
     this.buildWater();
     this.buildSky();
     this.buildTrees();
+    this.buildLavender();
   }
 
-  // ---------- ösvény ----------
-  buildPath() {
-    const pts = PATH_CTRL.map(([x, z]) => new THREE.Vector3(x, 0, z));
+  // ---------- görbék: szurdok, patak, ösvény ----------
+  buildCurves() {
+    const V = (x, z) => new THREE.Vector3(x, 0, z);
+    this.canyonCurve = new THREE.CatmullRomCurve3(CANYON_CTRL.map(([x, z]) => V(x, z)), false, 'centripetal');
+    const cl = this.canyonCurve.getLength();
+    this.canyonPts = this.canyonCurve.getSpacedPoints(Math.floor(cl / 2));
+    this.canyon = new Field(this.canyonPts, 104, true);
+    const nrm = (t) => { const tg = this.canyonCurve.getTangentAt(clamp(t, 0, 1)); return V(-tg.z, tg.x).normalize(); };
+    this.canyonNormal = nrm;
+    const cpt = (t, off) => this.canyonCurve.getPointAt(t).addScaledVector(nrm(t), off);
+    this.canyonAt = cpt;
+    // vízesés és tó a szurdokban (északi fal)
+    this.pool = cpt(WATERFALL_T, 4.2);
+    // patak: a medencéből a szurdokon át nyugatra, majd délre a tóba
+    const creekCtrl = [this.pool, cpt(0.8, 4), cpt(0.87, 4), cpt(0.94, 4.5), cpt(1.0, 5), V(-312, -170), V(-288, -110), V(-246, -52), V(-204, -8), V(-188, 10)];
+    this.creekCurve = new THREE.CatmullRomCurve3(creekCtrl, false, 'centripetal');
+    this.creekPts = this.creekCurve.getSpacedPoints(Math.floor(this.creekCurve.getLength()));
+    this.creek = new Field(this.creekPts, 10, true);
+    // ösvény: körút, a szurdokon a déli oldalon át
+    const canyonPath = []; for (let k = 0; k <= 16; k++) { const t = k / 16; canyonPath.push(cpt(t, -4)); }
+    const pts = [...PATH_A.map(([x, z]) => V(x, z)), ...canyonPath, ...PATH_B.map(([x, z]) => V(x, z))];
     this.pathCurve = new THREE.CatmullRomCurve3(pts, true, 'centripetal');
     const len = this.pathCurve.getLength();
     this.pathLen = len;
     this.pathPts = this.pathCurve.getSpacedPoints(Math.floor(len));
-    const R = 2, N = SIZE / R;
-    this.pdN = N;
-    this.pd = new Float32Array(N * N).fill(99);
-    for (const p of this.pathPts) {
-      const ci = Math.floor((p.x + HALF) / R), cj = Math.floor((p.z + HALF) / R);
-      for (let dj = -5; dj <= 5; dj++) for (let di = -5; di <= 5; di++) {
-        const i = ci + di, j = cj + dj; if (i < 0 || j < 0 || i >= N || j >= N) continue;
-        const cx = -HALF + (i + 0.5) * R, cz = -HALF + (j + 0.5) * R;
-        const d = Math.hypot(cx - p.x, cz - p.z);
-        const k = j * N + i; if (d < this.pd[k]) this.pd[k] = d;
-      }
-    }
+    this.path = new Field(this.pathPts, 10, false);
+    this.pdN = this.path.N;
   }
-  pathDist(x, z) {
-    const N = this.pdN; let i = Math.floor((x + HALF) / 2), j = Math.floor((z + HALF) / 2);
-    if (i < 0 || j < 0 || i >= N || j >= N) return 99;
-    return this.pd[j * N + i];
-  }
+  pathDist(x, z) { return this.path.at(x, z); }
+  creekDist(x, z) { return this.creek.at(x, z); }
+  canyonDist(x, z) { return this.canyon.at(x, z); }
+  autumnAt(x, z) { return smoothstep(250, 300, x) * (1 - smoothstep(165, 205, Math.abs(z))); }
+  birchAt(x, z) { return 1 - smoothstep(REG.birch.r * 0.45, REG.birch.r, dist(x, z, REG.birch)); }
+  rockyAt(x, z) { return 1 - smoothstep(REG.rocky.r * 0.35, REG.rocky.r, dist(x, z, REG.rocky)); }
+  inLavender(x, z, m = 0) { return inRect(x, z, REG.lavender, m); }
 
   rawHeight(x, z) {
-    let h0 = fbm(nA, x * 0.0035, z * 0.0035, 4) * 15;
+    const h0 = fbm(nA, x * 0.0035, z * 0.0035, 4) * 15;
     let h = 1.4 + (h0 > 0 ? h0 : h0 * 0.12) + fbm(nB, x * 0.018, z * 0.018, 3) * 1.5;
     const de = Math.max(Math.abs(x), Math.abs(z));
-    const m = smoothstep(232, 345, de);
+    const m = smoothstep(415, 495, de);
     h += m * m * (48 + 26 * nC(x * 0.012, z * 0.012)) + m * 6 * nE(x * 0.05, z * 0.05);
-    const dh = Math.hypot(x - HOME.x, z - HOME.z);
-    h = lerp(0, h, smoothstep(88, 140, dh));
-    const dl0 = Math.hypot(x - LAKE.x, z - LAKE.z);
+    // szurdok: két gerinc között, meredek sziklafalakkal
+    const dC = this.canyon.at(x, z);
+    if (dC < 110) {
+      const tC = this.canyon.tAt(x, z);
+      const ends = smoothstep(0, 0.09, tC) * smoothstep(1, 0.91, tC);
+      const ridge = (1 - smoothstep(28, 100, dC)) * ends;
+      h += ridge * (17 + 6 * nC(x * 0.02, z * 0.02) + 3 * nE(x * 0.06, z * 0.06));
+      const floorH = 0.9 + Math.max(0, h0) * 0.22 + 0.25 * nE(x * 0.05, z * 0.05);
+      h = lerp(h, floorH, 1 - smoothstep(9.5, 16.5, dC));
+      const dp = dist(x, z, this.pool);
+      if (dp < 8) h = lerp(floorH - 0.8, h, smoothstep(3, 7.5, dp));
+    }
+    // várrom-domb lapos tetővel
+    const dR = dist(x, z, REG.ruin);
+    if (dR < 90) { h += 19 * (1 - smoothstep(14, 80, dR)); h = lerp(22.5, h, smoothstep(12, 19, dR)); }
+    // sziklás fennsík
+    const dK = dist(x, z, REG.rocky);
+    if (dK < 110) h += (1 - smoothstep(25, 105, dK)) * (5 + 4 * nE(x * 0.03, z * 0.03) + 2 * nB(x * 0.09, z * 0.09));
+    // otthon és tanya: sík
+    h = lerp(0, h, smoothstep(88, 140, dist(x, z, HOME)));
+    const farm = Math.max(rectMask(x, z, { x0: 0, x1: 246, z0: 232, z1: 322 }, 30), 0);
+    if (farm > 0) h = lerp(h, 1.6 + 0.3 * nB(x * 0.02, z * 0.02), farm);
+    // tó
+    const dl0 = dist(x, z, LAKE);
     h = lerp(Math.min(h, 1.2), h, smoothstep(LAKE.r + 25, LAKE.r + 90, dl0));
     const dl = dl0 + nD(x * 0.03, z * 0.03) * 7;
     h = lerp(-3.6, h, smoothstep(LAKE.r * 0.4, LAKE.r + 26, dl));
-    const pd = this.pathDist(x, z);
+    // patakmeder
+    const dk = this.creek.at(x, z);
+    if (dk < 6) h -= 0.7 * (1 - smoothstep(1.3, 3.4, dk));
+    // ösvény
+    const pd = this.path.at(x, z);
     h -= 0.14 * (1 - smoothstep(0.5, 3, pd));
     return h;
   }
@@ -87,6 +167,7 @@ export class World {
     this.H = new Float32Array(G * G);
     for (let j = 0; j < G; j++) for (let i = 0; i < G; i++)
       this.H[j * G + i] = this.rawHeight(-HALF + i * CELL, -HALF + j * CELL);
+    this.ruinTop = this.heightAt(REG.ruin.x, REG.ruin.z);
   }
 
   heightAt(x, z) {
@@ -105,9 +186,23 @@ export class World {
   }
   inArena(x, z, m = 0) { return Math.abs(x - ARENA.x) < ARENA.hw + m && Math.abs(z - ARENA.z) < ARENA.hd + m; }
   inYard(x, z, m = 0) { return x > YARD.x0 - m && x < YARD.x1 + m && z > YARD.z0 - m && z < YARD.z1 + m; }
+
   forestAt(x, z) {
-    let f = smoothstep(0.08, 0.34, fbm(nD, x * 0.006 + 40, z * 0.006 - 20, 3));
-    f *= smoothstep(105, 150, Math.hypot(x - HOME.x, z - HOME.z));
+    let f = smoothstep(0.08, 0.34, fbm(nD, x * 0.006 + 40, z * 0.006 - 20, 3)) * 0.55;
+    f += 0.95 * (1 - smoothstep(REG.westwood.r * 0.5, REG.westwood.r, dist(x, z, REG.westwood)));
+    f += 0.95 * (1 - smoothstep(REG.swwood.r * 0.45, REG.swwood.r, dist(x, z, REG.swwood)));
+    f += 0.85 * this.autumnAt(x, z);
+    f += 0.6 * this.birchAt(x, z);
+    const dC = this.canyon.at(x, z);
+    if (dC < 100) f += 0.3 * (1 - smoothstep(40, 100, dC)) * smoothstep(17, 24, dC);
+    f = clamp(f, 0, 1);
+    f *= smoothstep(105, 150, dist(x, z, HOME));
+    f *= smoothstep(REG.xc.r, REG.xc.r + 18, dist(x, z, REG.xc));
+    f *= smoothstep(REG.wild.r, REG.wild.r + 20, dist(x, z, REG.wild));
+    f *= 1 - rectMask(x, z, { x0: 0, x1: 246, z0: 232, z1: 322 }, 20);
+    f *= smoothstep(28, 40, dist(x, z, REG.ruin));
+    f *= smoothstep(6, 12, this.creek.at(x, z));
+    f *= smoothstep(13, 18, dC);
     return f;
   }
 
@@ -115,13 +210,28 @@ export class World {
     const n1 = nB(x * 0.035, z * 0.035) * 0.5 + 0.5, n2 = nC(x * 0.008 + 10, z * 0.008) * 0.5 + 0.5;
     out.copy(COL.grassA).lerp(COL.grassB, n1);
     out.lerp(COL.dry, smoothstep(0.62, 0.9, n2) * 0.55);
-    out.lerp(COL.forest, this.forestAt(x, z) * 0.75);
+    out.lerp(COL.birchG, this.birchAt(x, z) * 0.5);
+    const f = this.forestAt(x, z);
+    out.lerp(COL.forest, f * 0.75);
+    out.lerp(COL.litter, f * this.autumnAt(x, z) * 0.45);
     if (h < WATER + 0.7) out.lerp(COL.sand, smoothstep(WATER + 0.7, WATER + 0.15, h));
     if (h < WATER - 0.2) out.lerp(COL.mud, smoothstep(WATER - 0.2, WATER - 1.2, h));
-    out.lerp(n1 > 0.5 ? COL.rock : COL.rock2, smoothstep(0.42, 0.72, slope) * 0.9);
-    out.lerp(COL.rock, smoothstep(26, 34, h));
+    const dC = this.canyon.at(x, z);
+    if (dC < 26) {
+      out.lerp(COL.gravel, (1 - smoothstep(6, 11, dC)) * 0.45);
+      const k = Math.floor(((h * 0.7 + nE(x * 0.05, z * 0.05) * 1.2) % 4 + 4) % 4);
+      out.lerp(COL.strata[k], smoothstep(0.38, 0.7, slope) * smoothstep(26, 14, dC));
+    }
+    out.lerp(n1 > 0.5 ? COL.rock : COL.rock2, smoothstep(0.42, 0.72, slope) * 0.9 * (dC < 22 ? 0.3 : 1));
+    out.lerp(COL.rock2, this.rockyAt(x, z) * smoothstep(0.55, 0.75, nE(x * 0.04, z * 0.04)) * 0.8);
+    out.lerp(COL.rock, smoothstep(26, 34, h) * (dist(x, z, REG.ruin) < 30 ? 0 : 1));
     out.lerp(COL.snow, smoothstep(50, 58, h + n2 * 6));
-    const pd = this.pathDist(x, z);
+    if (this.inLavender(x, z, 1)) out.lerp(COL.soil, 0.55);
+    if (inRect(x, z, REG.garden, 1)) out.lerp(COL.soil, 0.85);
+    if (inRect(x, z, REG.farmYard, 0)) out.lerp(COL.dirt2, 0.6);
+    const dk = this.creek.at(x, z);
+    if (dk < 3) out.lerp(COL.mud, (1 - smoothstep(1.5, 3, dk)) * 0.7);
+    const pd = this.path.at(x, z);
     if (pd < 4) out.lerp(n1 > 0.45 ? COL.dirt : COL.dirt2, (1 - smoothstep(1.3, 3.3, pd)) * 0.95);
     return out;
   }
@@ -139,11 +249,13 @@ export class World {
       this.gc[k * 3] = c.r; this.gc[k * 3 + 1] = c.g; this.gc[k * 3 + 2] = c.b;
       let d = 0.55 + 0.45 * smoothstep(-0.3, 0.5, nE(x * 0.02, z * 0.02));
       d *= 1 - this.forestAt(x, z) * 0.55;
-      d *= smoothstep(1.8, 3.2, this.pd[k]);
+      d *= smoothstep(1.8, 3.2, this.path.d[k]);
       d *= smoothstep(WATER + 0.25, WATER + 0.7, h);
       d *= 1 - smoothstep(0.45, 0.65, sl);
-      d *= 1 - smoothstep(22, 28, h);
-      if (this.inArena(x, z, 1.5) || this.inYard(x, z, 0.5)) d = 0;
+      d *= 1 - smoothstep(22, 28, h) * (dist(x, z, REG.ruin) < 30 ? 0 : 1);
+      d *= smoothstep(1.8, 3.0, this.creek.d[k]);
+      if (this.canyon.d[k] < 10) d *= 0.35;
+      if (this.inArena(x, z, 1.5) || this.inYard(x, z, 0.5) || this.inLavender(x, z, 0.5) || inRect(x, z, REG.garden, 0.5) || inRect(x, z, REG.farmYard)) d = 0;
       this.gd[k] = d;
     }
   }
@@ -193,17 +305,16 @@ export class World {
     this.group.add(this.terrain);
   }
 
-  // ---------- víz ----------
-  buildWater() {
-    const geo = new THREE.CircleGeometry(LAKE.r + 40, 64); geo.rotateX(-Math.PI / 2);
-    this.waterUniforms = {
-      uTime: { value: 0 }, uSun: { value: SUN_DIR }, uDeep: { value: new THREE.Color('#1d4f6e') },
-      uShallow: { value: new THREE.Color('#4f8f8c') }, uSky: { value: new THREE.Color('#b8d6ee') },
-      uLake: { value: new THREE.Vector3(LAKE.x, LAKE.z, LAKE.r) },
+  // ---------- víz: tó, patak, medence, vízesés ----------
+  waterMaterial(lake) {
+    const u = {
+      uTime: this.waterUniforms.uTime, uSun: { value: SUN_DIR }, uDeep: { value: new THREE.Color('#1d4f6e') },
+      uShallow: { value: new THREE.Color(lake ? '#4f8f8c' : '#5fa3a0') }, uSky: { value: new THREE.Color('#b8d6ee') },
+      uLake: { value: lake ? new THREE.Vector3(LAKE.x, LAKE.z, LAKE.r) : new THREE.Vector3(9999, 9999, 1) },
     };
     const mat = new THREE.ShaderMaterial({
       transparent: true, fog: true, depthWrite: false,
-      uniforms: THREE.UniformsUtils.merge([THREE.UniformsLib.fog, this.waterUniforms]),
+      uniforms: THREE.UniformsUtils.merge([THREE.UniformsLib.fog, u]),
       vertexShader: `varying vec3 vW;
         #include <fog_pars_vertex>
         void main(){ vec4 w = modelMatrix*vec4(position,1.0); vW = w.xyz; vec4 mvPosition = viewMatrix*w; gl_Position = projectionMatrix*mvPosition;
@@ -228,11 +339,70 @@ export class World {
           #include <fog_fragment>
         }`,
     });
-    for (const k in this.waterUniforms) mat.uniforms[k] = this.waterUniforms[k];
-    this.water = new THREE.Mesh(geo, mat);
-    this.water.position.set(LAKE.x, WATER, LAKE.z);
-    this.water.renderOrder = 2;
+    for (const k in u) mat.uniforms[k] = u[k];
+    return mat;
+  }
+  buildWater() {
+    this.waterUniforms = { uTime: { value: 0 } };
+    const geo = new THREE.CircleGeometry(LAKE.r + 40, 64); geo.rotateX(-Math.PI / 2);
+    this.water = new THREE.Mesh(geo, this.waterMaterial(true));
+    this.water.position.set(LAKE.x, WATER, LAKE.z); this.water.renderOrder = 2;
     this.group.add(this.water);
+    // patak: szalag a meder fölött
+    const cm = this.waterMaterial(false);
+    const pos = [], idx = [], pts = this.creekPts, W = 2.3;
+    let lastY = 99;
+    pts.forEach((p, i) => {
+      const a = pts[Math.max(0, i - 1)], b = pts[Math.min(pts.length - 1, i + 1)];
+      const tx = b.x - a.x, tz = b.z - a.z, l = Math.hypot(tx, tz) || 1, nx = -tz / l, nz = tx / l;
+      let y = this.heightAt(p.x, p.z) + 0.42; y = Math.min(y, lastY + 0.05); lastY = y;
+      if (Math.hypot(p.x - LAKE.x, p.z - LAKE.z) < LAKE.r + 4) y = Math.max(WATER, y);
+      pos.push(p.x + nx * W, y, p.z + nz * W, p.x - nx * W, y, p.z - nz * W);
+      if (i > 0) { const o = (i - 1) * 2; idx.push(o, o + 2, o + 1, o + 1, o + 2, o + 3); }
+    });
+    const cg = new THREE.BufferGeometry(); cg.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); cg.setIndex(idx); cg.computeBoundingSphere();
+    const creek = new THREE.Mesh(cg, cm); creek.renderOrder = 2; this.group.add(creek);
+    // medence
+    const pg = new THREE.CircleGeometry(6.2, 32); pg.rotateX(-Math.PI / 2);
+    const pool = new THREE.Mesh(pg, cm); pool.position.set(this.pool.x, this.heightAt(this.pool.x, this.pool.z) + 0.75, this.pool.z); pool.renderOrder = 2; this.group.add(pool);
+    this.poolY = pool.position.y;
+    // vízesés a sziklafalon
+    const t = WATERFALL_T, n = this.canyonNormal(t), c0 = this.canyonCurve.getPointAt(t), side = new THREE.Vector3(-n.z, 0, n.x);
+    const wpos = [], wuv = [], widx = [], S = 18;
+    for (let k = 0; k <= S; k++) {
+      const f = k / S, off = lerp(19.5, 6.0, f);
+      const cx = c0.x + n.x * off, cz = c0.z + n.z * off;
+      let y = this.heightAt(cx, cz) + 0.45; if (k === S) y = this.poolY + 0.05;
+      const w = lerp(1.6, 2.6, f);
+      wpos.push(cx + side.x * w, y, cz + side.z * w, cx - side.x * w, y, cz - side.z * w); wuv.push(0, 1 - f, 1, 1 - f);
+      if (k > 0) { const o = (k - 1) * 2; widx.push(o, o + 2, o + 1, o + 1, o + 2, o + 3); }
+    }
+    const wg = new THREE.BufferGeometry(); wg.setAttribute('position', new THREE.Float32BufferAttribute(wpos, 3)); wg.setAttribute('uv', new THREE.Float32BufferAttribute(wuv, 2)); wg.setIndex(widx);
+    const wm = new THREE.ShaderMaterial({
+      transparent: true, depthWrite: false, side: THREE.DoubleSide, fog: true,
+      uniforms: THREE.UniformsUtils.merge([THREE.UniformsLib.fog, { uTime: { value: 0 } }]),
+      vertexShader: `varying vec2 vUv;
+        #include <fog_pars_vertex>
+        void main(){ vUv = uv; vec4 mvPosition = modelViewMatrix*vec4(position,1.0); gl_Position = projectionMatrix*mvPosition;
+        #include <fog_vertex>
+        }`,
+      fragmentShader: `uniform float uTime; varying vec2 vUv;
+        #include <fog_pars_fragment>
+        float h(vec2 p){ return fract(sin(dot(p, vec2(12.9898,78.233)))*43758.5453); }
+        float n2(vec2 p){ vec2 i=floor(p), f=fract(p); f=f*f*(3.0-2.0*f); return mix(mix(h(i),h(i+vec2(1,0)),f.x), mix(h(i+vec2(0,1)),h(i+vec2(1,1)),f.x), f.y); }
+        void main(){
+          float s = n2(vec2(vUv.x*14.0, vUv.y*5.0 + uTime*3.2))*0.6 + n2(vec2(vUv.x*30.0, vUv.y*11.0 + uTime*5.0))*0.4;
+          vec3 col = mix(vec3(0.62,0.8,0.9), vec3(1.0), smoothstep(0.35, 0.8, s));
+          float a = (0.55 + 0.4*s) * smoothstep(0.0, 0.22, vUv.x) * smoothstep(1.0, 0.78, vUv.x);
+          gl_FragColor = vec4(col, a);
+          #include <colorspace_fragment>
+          #include <fog_fragment>
+        }`,
+    });
+    this.fallUniform = wm.uniforms.uTime;
+    const fall = new THREE.Mesh(wg, wm); fall.renderOrder = 3; this.group.add(fall);
+    this.waterfallBase = new THREE.Vector3(c0.x + n.x * 6.5, this.poolY, c0.z + n.z * 6.5);
+    this.waterfallTop = new THREE.Vector3(c0.x + n.x * 19.5, this.heightAt(c0.x + n.x * 19.5, c0.z + n.z * 19.5), c0.z + n.z * 19.5);
   }
 
   // ---------- ég, felhők ----------
@@ -268,9 +438,9 @@ export class World {
     const ctexs = [cloudTex(9), cloudTex(19), cloudTex(29)];
     const r = mulberry32(17);
     this.clouds = new THREE.Group();
-    for (let i = 0; i < 18; i++) {
+    for (let i = 0; i < 20; i++) {
       const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: ctexs[i % 3], fog: false, depthWrite: false, transparent: true, opacity: 0.85 + r() * 0.15 }));
-      const a = r() * Math.PI * 2, d = 260 + r() * 420;
+      const a = r() * Math.PI * 2, d = 280 + r() * 440;
       sp.position.set(Math.cos(a) * d, 120 + r() * 100, Math.sin(a) * d);
       const sc = 130 + r() * 150; sp.scale.set(sc, sc * 0.5, 1);
       this.clouds.add(sp);
@@ -280,7 +450,6 @@ export class World {
 
   // ---------- fák, sziklák ----------
   buildTrees() {
-    const trunkC = new THREE.Color('#5a3d26'), trunkC2 = new THREE.Color('#7a5a3e');
     const colorize = (g, c, vary = 0, seed = 1) => {
       const n = g.attributes.position.count, arr = new Float32Array(n * 3), r = mulberry32(seed), tmp = new THREE.Color();
       for (let i = 0; i < n; i++) { tmp.copy(c).multiplyScalar(1 - vary + r() * vary * 2); arr[i * 3] = tmp.r; arr[i * 3 + 1] = tmp.g; arr[i * 3 + 2] = tmp.b; }
@@ -297,76 +466,163 @@ export class World {
       return g;
     };
     const prep = (g) => { const ng = g.index ? g.toNonIndexed() : g; ng.deleteAttribute('uv'); return ng; };
-    // szikla
     const rk = new THREE.IcosahedronGeometry(1, 1);
     const rockGeo = colorize(jitter(prep(rk), 0.45, 3), new THREE.Color('#8d8880'), 0.12, 21);
     rockGeo.scale(1, 0.62, 1); rockGeo.computeVertexNormals();
 
     this.treeUniforms = { uTime: { value: 0 } };
     const TA = makeTreeAssets(this.treeUniforms.uTime);
-    const conGeo = TA.con, decGeo = TA.dec;
     const rockMat = new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true });
+    const TYPES = { con: [TA.con, TA.conMat], dec: [TA.dec, TA.decMat], aut: [TA.dec, TA.autMat], birch: [TA.birch, TA.birchMat], apple: [TA.apple, TA.appleMat], rock: [rockGeo, rockMat] };
 
-    const CH = 87.5, NC = Math.ceil(SIZE / CH);
+    const CH = 125, NC = Math.ceil(SIZE / CH);
     const chunks = [];
-    for (let i = 0; i < NC * NC; i++) chunks.push({ con: [], dec: [], rock: [] });
+    for (let i = 0; i < NC * NC; i++) { const o = {}; for (const k in TYPES) o[k] = []; chunks.push(o); }
     const chunkOf = (x, z) => clamp(Math.floor((z + HALF) / CH), 0, NC - 1) * NC + clamp(Math.floor((x + HALF) / CH), 0, NC - 1);
     const rnd = mulberry32(99);
     const m = new THREE.Matrix4(), q = new THREE.Quaternion(), s = new THREE.Vector3(), p = new THREE.Vector3(), up = new THREE.Vector3(0, 1, 0);
-    const blocked = (x, z, r) => this.pathDist(x, z) < 3.2 + r || this.inArena(x, z, 6) || this.inYard(x, z, 6) ||
-      Math.hypot(x - STABLE.x, z - STABLE.z) < 16 || Math.hypot(x - LAKE.x, z - LAKE.z) < LAKE.r + 4 || Math.abs(x) > HALF - 4 || Math.abs(z) > HALF - 4;
+    const blocked = (x, z, r) => this.path.at(x, z) < 3.2 + r || this.inArena(x, z, 6) || this.inYard(x, z, 6) ||
+      dist(x, z, STABLE) < 16 || dist(x, z, LAKE) < LAKE.r + 4 || Math.abs(x) > HALF - 4 || Math.abs(z) > HALF - 4 ||
+      this.creek.at(x, z) < 4 + r || dist(x, z, this.pool) < 9 || this.inLavender(x, z, 4) || inRect(x, z, REG.farmYard, 6) || inRect(x, z, REG.garden, 4) || inRect(x, z, REG.orchard, 3);
+    this.treeSpots = [];
     const addTree = (x, z, type, sc) => {
       const h = this.heightAt(x, z);
       p.set(x, h - 0.15, z); q.setFromAxisAngle(up, rnd() * Math.PI * 2); s.set(sc * (0.9 + rnd() * 0.2), sc, sc * (0.9 + rnd() * 0.2));
       m.compose(p, q, s);
       const tint = 0.85 + rnd() * 0.3;
       chunks[chunkOf(x, z)][type].push({ m: m.clone(), c: new THREE.Color(tint, tint * (0.95 + rnd() * 0.1), tint * 0.9) });
-      this.addCircle(x, z, 0.38 * sc, 50);
+      this.addCircle(x, z, (type === 'birch' ? 0.28 : 0.38) * sc, 50);
+      this.treeSpots.push({ x, z, type });
+    };
+    const addRock = (x, z, sc) => {
+      const h = this.heightAt(x, z);
+      p.set(x, h - sc * 0.15, z); q.setFromEuler(new THREE.Euler(rnd() * 0.3, rnd() * 6.28, rnd() * 0.3)); s.set(sc * (0.8 + rnd() * 0.5), sc, sc * (0.8 + rnd() * 0.5));
+      m.compose(p, q, s);
+      chunks[chunkOf(x, z)].rock.push({ m: m.clone(), c: new THREE.Color(1, 1, 1).multiplyScalar(0.85 + rnd() * 0.25) });
+      if (sc > 0.7) this.addCircle(x, z, sc * 0.85, sc * 0.6);
     };
     const step = 7;
     for (let gz = -HALF; gz < HALF; gz += step) for (let gx = -HALF; gx < HALF; gx += step) {
       const x = gx + rnd() * step, z = gz + rnd() * step;
       const f = this.forestAt(x, z), h = this.heightAt(x, z);
       const sl = this.slopeAt(x, z);
-      let pr = f * 0.72 + 0.02;
-      if (h > 30) pr *= 0.4; if (h > 40) pr = 0;
+      let pr = f * 0.72 + 0.015;
+      if (h > 32) pr *= 0.4; if (h > 42) pr = 0;
       if (sl > 0.6) pr *= 0.2;
       if (rnd() < pr && !blocked(x, z, 1)) {
         if (h < WATER + 0.6) continue;
-        const conP = 0.25 + smoothstep(4, 18, h) * 0.6;
-        addTree(x, z, rnd() < conP ? 'con' : 'dec', 0.75 + rnd() * 0.65);
-      } else if (rnd() < 0.012 + smoothstep(0.35, 0.8, sl) * 0.12 + smoothstep(20, 35, h) * 0.05 && !blocked(x, z, 1.5) && h > WATER + 0.2) {
-        const sc = (0.35 + rnd() * 1.1) * (h > 20 ? 2.2 : 1);
-        p.set(x, h - sc * 0.15, z); q.setFromEuler(new THREE.Euler(rnd() * 0.3, rnd() * 6.28, rnd() * 0.3)); s.set(sc * (0.8 + rnd() * 0.5), sc, sc * (0.8 + rnd() * 0.5));
-        m.compose(p, q, s);
-        chunks[chunkOf(x, z)].rock.push({ m: m.clone(), c: new THREE.Color(1, 1, 1).multiplyScalar(0.85 + rnd() * 0.25) });
-        if (sc > 0.7) this.addCircle(x, z, sc * 0.85, sc * 0.6);
+        const bi = this.birchAt(x, z), au = this.autumnAt(x, z);
+        let type;
+        if (rnd() < bi * 0.85) type = 'birch';
+        else if (rnd() < au * 0.82) type = 'aut';
+        else type = rnd() < 0.25 + smoothstep(4, 18, h) * 0.6 ? 'con' : 'dec';
+        addTree(x, z, type, 0.75 + rnd() * 0.65);
+      } else {
+        const rk = this.rockyAt(x, z), dC = this.canyon.at(x, z);
+        const prr = 0.01 + smoothstep(0.35, 0.8, sl) * 0.12 + smoothstep(20, 35, h) * 0.05 + rk * 0.16 + (dC > 7 && dC < 14 ? 0.08 : 0);
+        if (rnd() < prr && !blocked(x, z, 1.5) && h > WATER + 0.2 && dist(x, z, REG.ruin) > 24) {
+          addRock(x, z, (0.35 + rnd() * 1.1) * (h > 20 || rk > 0.5 ? 1.9 : 1));
+        }
       }
     }
+    // almáskert sorokban
+    const O = REG.orchard;
+    this.appleTrees = [];
+    for (let x = O.x0 + 5; x < O.x1 - 2; x += 9) for (let z = O.z0 + 5; z < O.z1 - 2; z += 9) {
+      const jx = x + (rnd() - 0.5) * 1.2, jz = z + (rnd() - 0.5) * 1.2;
+      addTree(jx, jz, 'apple', 0.9 + rnd() * 0.25); this.appleTrees.push({ x: jx, z: jz });
+    }
     // néhány fa a tanya körül
-    const deco = [[-48, -12], [-52, -40], [-5, -55], [14, -48], [-38, -62], [96, 52], [104, -22], [70, 58], [-60, 25], [-30, 60], [118, 18], [60, -40], [30, 60], [-70, -20], [85, -35]];
+    const deco = [[-48, -12], [-52, -40], [-5, -55], [14, -48], [-38, -62], [96, 52], [104, -22], [70, 58], [-60, 25], [-30, 60], [60, -40], [30, 60], [-70, -20], [130, 300], [180, 310], [-10, 230]];
     for (const [x, z] of deco) if (!blocked(x, z, 1)) addTree(x, z, rnd() < 0.3 ? 'con' : 'dec', 0.9 + rnd() * 0.4);
 
     this.chunks = [];
     for (let i = 0; i < chunks.length; i++) {
       const c = chunks[i];
       const cx = -HALF + (i % NC + 0.5) * CH, cz = -HALF + (Math.floor(i / NC) + 0.5) * CH;
-      for (const [type, geo, mat, shadow] of [['con', conGeo, TA.conMat, true], ['dec', decGeo, TA.decMat, true], ['rock', rockGeo, rockMat, true]]) {
+      for (const type in TYPES) {
         const list = c[type]; if (!list.length) continue;
+        const [geo, mat] = TYPES[type];
         const im = new THREE.InstancedMesh(geo, mat, list.length);
         list.forEach((it, k) => { im.setMatrixAt(k, it.m); im.setColorAt(k, it.c); });
         im.computeBoundingSphere();
-        im.castShadow = shadow; im.receiveShadow = type === 'rock';
+        im.castShadow = false; im.receiveShadow = type === 'rock';
         this.group.add(im);
         this.chunks.push({ mesh: im, x: cx, z: cz });
       }
     }
+    // árnyékvető proxyk: csak a közeli fák, csak az árnyéktérképbe (1-es réteg)
+    this.allTrees = {}; for (const type in TYPES) this.allTrees[type] = [];
+    chunks.forEach((c) => { for (const type in TYPES) for (const it of c[type]) this.allTrees[type].push(it.m); });
+    this.shadowProxies = {};
+    for (const type in TYPES) {
+      const [geo, mat] = TYPES[type];
+      const im = new THREE.InstancedMesh(geo, mat, 420); im.count = 0; im.castShadow = true; im.frustumCulled = false; im.layers.set(1);
+      this.group.add(im); this.shadowProxies[type] = im;
+    }
+    this._lastShadow = new THREE.Vector2(1e9, 1e9);
+  }
+
+  updateShadowProxies(x, z) {
+    if (Math.hypot(x - this._lastShadow.x, z - this._lastShadow.y) < 6) return;
+    this._lastShadow.set(x, z);
+    const tmp = new THREE.Vector3();
+    for (const type in this.shadowProxies) {
+      const im = this.shadowProxies[type]; let n = 0;
+      for (const m of this.allTrees[type]) {
+        const e = m.elements, dx = e[12] - x, dz = e[14] - z;
+        if (dx * dx + dz * dz < 48 * 48 && n < 420) im.setMatrixAt(n++, m);
+      }
+      im.count = n; im.instanceMatrix.needsUpdate = true;
+    }
+  }
+
+  // ---------- levendulamező ----------
+  buildLavender() {
+    const tex = canvasTexture(128, 128, (ctx, w, h) => {
+      const r = mulberry32(61);
+      for (let i = 0; i < 70; i++) { // levelek
+        ctx.strokeStyle = `hsl(${95 + r() * 25},${25 + r() * 15}%,${28 + r() * 14}%)`; ctx.lineWidth = 2;
+        const x = 20 + r() * 88; ctx.beginPath(); ctx.moveTo(64 + (x - 64) * 0.3, 128); ctx.lineTo(x, 70 + r() * 30); ctx.stroke();
+      }
+      for (let i = 0; i < 26; i++) { // virágszárak
+        const x = 14 + r() * 100, top = 8 + r() * 26, base = 70 + r() * 10;
+        ctx.strokeStyle = '#5f7a45'; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.moveTo(64 + (x - 64) * 0.4, 128); ctx.lineTo(x, top + 18); ctx.stroke();
+        for (let k = 0; k < 7; k++) { ctx.fillStyle = `hsl(${262 + r() * 18},${45 + r() * 20}%,${48 + r() * 16}%)`; ctx.beginPath(); ctx.ellipse(x + (r() - 0.5) * 3, top + k * 3.4, 3.2, 2.4, 0, 0, 7); ctx.fill(); }
+      }
+    });
+    const pos = [], uv = [], nor = [], idx = [];
+    for (let k = 0; k < 3; k++) {
+      const a = k * Math.PI / 3, dx = Math.cos(a) * 0.5, dz = Math.sin(a) * 0.5, o = pos.length / 3;
+      pos.push(-dx, 0, -dz, dx, 0, dz, dx, 0.85, dz, -dx, 0.85, dz * -1);
+      pos[pos.length - 1] = -dz;
+      uv.push(0, 0, 1, 0, 1, 1, 0, 1); for (let q = 0; q < 4; q++) nor.push(0, 1, 0);
+      idx.push(o, o + 1, o + 2, o, o + 2, o + 3);
+    }
+    const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2)); g.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3)); g.setIndex(idx);
+    const mat = new THREE.MeshLambertMaterial({ map: tex, alphaTest: 0.45, side: THREE.DoubleSide });
+    mat.onBeforeCompile = (sh) => {
+      sh.uniforms.uTime = this.treeUniforms.uTime;
+      sh.vertexShader = 'uniform float uTime;\n' + sh.vertexShader.replace('#include <begin_vertex>', `#include <begin_vertex>
+        float ph = instanceMatrix[3][0]*0.4 + instanceMatrix[3][2]*0.3; transformed.x += sin(uTime*2.0 + ph) * position.y * 0.08;`);
+      sh.fragmentShader = sh.fragmentShader.replace('#include <normal_fragment_begin>', '#include <normal_fragment_begin>\n normal = normalize(vNormal);');
+    };
+    const L = REG.lavender, items = [], rnd = mulberry32(62);
+    for (let z = L.z0 + 2; z < L.z1 - 1; z += 2.9) for (let x = L.x0 + 1.5; x < L.x1 - 1; x += 1.6) {
+      if (this.path.at(x, z) < 3) continue;
+      items.push([x + (rnd() - 0.5) * 0.3, z + (rnd() - 0.5) * 0.3, 0.85 + rnd() * 0.35]);
+    }
+    const im = new THREE.InstancedMesh(g, mat, items.length);
+    const m = new THREE.Matrix4(), q = new THREE.Quaternion(), up = new THREE.Vector3(0, 1, 0);
+    items.forEach(([x, z, s], k) => { q.setFromAxisAngle(up, rnd() * 3); m.compose(new THREE.Vector3(x, this.heightAt(x, z) - 0.05, z), q, new THREE.Vector3(s, s * (0.9 + rnd() * 0.25), s)); im.setMatrixAt(k, m); });
+    im.computeBoundingSphere(); im.receiveShadow = true;
+    this.group.add(im);
   }
 
   updateChunks(cam) {
     for (const c of this.chunks) {
       const d = Math.hypot(c.x - cam.x, c.z - cam.z);
-      c.mesh.visible = d < 560;
+      c.mesh.visible = d < 410;
     }
   }
 
@@ -400,14 +656,13 @@ export class World {
       const dx = p.x - b.x, dz = p.z - b.z;
       if (Math.abs(dx) > b.br + r || Math.abs(dz) > b.br + r) continue;
       if (lift > (b.data ? b.h - 0.3 : b.h)) continue;
-      // helyi tengelyek: a = keresztben (hw), f = hosszában (hd)
       const la = dx * b.c - dz * b.s, lf = dx * b.s + dz * b.c;
       const ca = clamp(la, -b.hw, b.hw), cf = clamp(lf, -b.hd, b.hd);
       let ea = la - ca, ef = lf - cf; let d = Math.hypot(ea, ef);
       if (d >= r) continue;
-      if (d < 1e-4) { // belül: a legközelebbi oldalra
+      if (d < 1e-4) {
         const pa = b.hw - Math.abs(la), pf = b.hd - Math.abs(lf);
-        if (pa < pf) { ea = Math.sign(la) || 1; ef = 0; d = 0; const na = Math.sign(la) * (b.hw + r); const nf = lf; p.x = b.x + na * b.c + nf * b.s; p.z = b.z - na * b.s + nf * b.c; }
+        if (pa < pf) { const na = (Math.sign(la) || 1) * (b.hw + r); p.x = b.x + na * b.c + lf * b.s; p.z = b.z - na * b.s + lf * b.c; }
         else { const nf = (Math.sign(lf) || 1) * (b.hd + r); p.x = b.x + la * b.c + nf * b.s; p.z = b.z - la * b.s + nf * b.c; }
         hit = true; continue;
       }
@@ -417,8 +672,8 @@ export class World {
     return hit;
   }
 
-  // ---------- minitérkép ----------
-  renderMap(size = 320) {
+  // ---------- térkép ----------
+  renderMap(size = 512) {
     const cv = document.createElement('canvas'); cv.width = cv.height = size;
     const ctx = cv.getContext('2d'); const img = ctx.createImageData(size, size); const c = new THREE.Color();
     for (let j = 0; j < size; j++) for (let i = 0; i < size; i++) {
@@ -427,10 +682,11 @@ export class World {
       this.gridColor(x, z, c);
       let r = c.r, g = c.g, b = c.b;
       const f = this.forestAt(x, z); r *= 1 - f * 0.35; g *= 1 - f * 0.25; b *= 1 - f * 0.35;
-      if (h < WATER) { const t = clamp((WATER - h) / 1.5, 0.4, 1); r = lerp(r, 0.12, t); g = lerp(g, 0.32, t); b = lerp(b, 0.55, t); }
+      if (h < WATER || this.creek.at(x, z) < 1.9 || dist(x, z, this.pool) < 6) { const t = h < WATER ? clamp((WATER - h) / 1.5, 0.4, 1) : 0.75; r = lerp(r, 0.12, t); g = lerp(g, 0.32, t); b = lerp(b, 0.55, t); }
       if (this.inArena(x, z)) { r = 0.75; g = 0.62; b = 0.42; }
       if (this.inYard(x, z)) { r = 0.5; g = 0.45; b = 0.38; }
-      const shade = clamp(1 + (this.heightAt(x - 2, z - 2) - h) * 0.12, 0.7, 1.3);
+      if (this.inLavender(x, z) && (Math.floor((z - REG.lavender.z0) / 2.9) % 1 === 0)) { r = lerp(r, 0.42, 0.6); g = lerp(g, 0.28, 0.6); b = lerp(b, 0.62, 0.6); }
+      const shade = clamp(1 + (this.heightAt(x - 2, z - 2) - h) * 0.12, 0.65, 1.35);
       const k = (j * size + i) * 4;
       img.data[k] = Math.pow(clamp(r * shade, 0, 1), 1 / 2.2) * 255; img.data[k + 1] = Math.pow(clamp(g * shade, 0, 1), 1 / 2.2) * 255;
       img.data[k + 2] = Math.pow(clamp(b * shade, 0, 1), 1 / 2.2) * 255; img.data[k + 3] = 255;
@@ -438,6 +694,8 @@ export class World {
     ctx.putImageData(img, 0, 0);
     const sx = (x) => (x + HALF) / SIZE * size;
     ctx.fillStyle = '#8a3b2a'; ctx.fillRect(sx(STABLE.x - STABLE.w / 2), sx(STABLE.z - STABLE.d / 2), STABLE.w / SIZE * size, STABLE.d / SIZE * size);
+    ctx.fillStyle = '#9a3b2a'; ctx.fillRect(sx(REG.farm.x - 6), sx(REG.farm.z - 4), 12 / SIZE * size, 8 / SIZE * size);
+    ctx.fillStyle = '#7d776c'; ctx.beginPath(); ctx.arc(sx(REG.ruin.x), sx(REG.ruin.z), 14 / SIZE * size, 0, 7); ctx.fill();
     return cv;
   }
 }
