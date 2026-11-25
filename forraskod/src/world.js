@@ -485,13 +485,21 @@ export class World {
       dist(x, z, STABLE) < 16 || dist(x, z, LAKE) < LAKE.r + 4 || Math.abs(x) > HALF - 4 || Math.abs(z) > HALF - 4 ||
       this.creek.at(x, z) < 4 + r || dist(x, z, this.pool) < 9 || this.inLavender(x, z, 4) || inRect(x, z, REG.farmYard, 6) || inRect(x, z, REG.garden, 4) || inRect(x, z, REG.orchard, 3);
     this.treeSpots = [];
+    // ritkás erdő: a törzsek között mindig marad hely egy lónak
+    const tg = new Map(), TG = 10;
+    const crowded = (x, z, d) => {
+      const i0 = Math.floor((x - d) / TG), i1 = Math.floor((x + d) / TG), j0 = Math.floor((z - d) / TG), j1 = Math.floor((z + d) / TG);
+      for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) { const a = tg.get(i * 4096 + j); if (a) for (const t of a) if (Math.hypot(t.x - x, t.z - z) < d + t.sp) return true; }
+      return false;
+    };
     const addTree = (x, z, type, sc) => {
+      { const k = Math.floor(x / TG) * 4096 + Math.floor(z / TG); let a = tg.get(k); if (!a) tg.set(k, a = []); a.push({ x, z, sp: type === 'con' ? 4.3 : type === 'birch' ? 3.0 : 3.6 }); }
       const h = this.heightAt(x, z);
       p.set(x, h - 0.15, z); q.setFromAxisAngle(up, rnd() * Math.PI * 2); s.set(sc * (0.9 + rnd() * 0.2), sc, sc * (0.9 + rnd() * 0.2));
       m.compose(p, q, s);
       const tint = 0.85 + rnd() * 0.3;
       chunks[chunkOf(x, z)][type].push({ m: m.clone(), c: new THREE.Color(tint, tint * (0.95 + rnd() * 0.1), tint * 0.9) });
-      this.addCircle(x, z, (type === 'birch' ? 0.28 : 0.38) * sc, 50);
+      this.addCircle(x, z, (type === 'birch' ? 0.28 : 0.38) * sc, 50).dg = true;
       this.treeSpots.push({ x, z, type });
     };
     const addRock = (x, z, sc) => {
@@ -499,14 +507,14 @@ export class World {
       p.set(x, h - sc * 0.15, z); q.setFromEuler(new THREE.Euler(rnd() * 0.3, rnd() * 6.28, rnd() * 0.3)); s.set(sc * (0.8 + rnd() * 0.5), sc, sc * (0.8 + rnd() * 0.5));
       m.compose(p, q, s);
       chunks[chunkOf(x, z)].rock.push({ m: m.clone(), c: new THREE.Color(1, 1, 1).multiplyScalar(0.85 + rnd() * 0.25) });
-      if (sc > 0.7) this.addCircle(x, z, sc * 0.85, sc * 0.6);
+      if (sc > 0.7) this.addCircle(x, z, sc * 0.85, sc * 0.6).dg = true;
     };
     const step = 7;
     for (let gz = -HALF; gz < HALF; gz += step) for (let gx = -HALF; gx < HALF; gx += step) {
       const x = gx + rnd() * step, z = gz + rnd() * step;
       const f = this.forestAt(x, z), h = this.heightAt(x, z);
       const sl = this.slopeAt(x, z);
-      let pr = f * 0.72 + 0.015;
+      let pr = f * 0.5 + 0.012;
       if (h > 32) pr *= 0.4; if (h > 42) pr = 0;
       if (sl > 0.6) pr *= 0.2;
       if (rnd() < pr && !blocked(x, z, 1)) {
@@ -516,7 +524,8 @@ export class World {
         if (rnd() < bi * 0.85) type = 'birch';
         else if (rnd() < au * 0.82) type = 'aut';
         else type = rnd() < 0.25 + smoothstep(4, 18, h) * 0.6 ? 'con' : 'dec';
-        addTree(x, z, type, 0.75 + rnd() * 0.65);
+        if (crowded(x, z, type === 'con' ? 4.3 : type === 'birch' ? 3.0 : 3.6)) continue;
+        addTree(x, z, type, 0.8 + rnd() * 0.65);
       } else {
         const rk = this.rockyAt(x, z), dC = this.canyon.at(x, z);
         const prr = 0.01 + smoothstep(0.35, 0.8, sl) * 0.12 + smoothstep(20, 35, h) * 0.05 + rk * 0.16 + (dC > 7 && dC < 14 ? 0.08 : 0);
@@ -633,12 +642,31 @@ export class World {
     for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) {
       const k = i * 4096 + j; let a = this.circles.get(k); if (!a) { a = []; this.circles.set(k, a); } a.push(c);
     }
+    return c;
   }
   addBox(x, z, hw, hd, yaw, h, data = null) {
     const b = { x, z, hw, hd, yaw, c: Math.cos(yaw), s: Math.sin(yaw), h, data, br: Math.hypot(hw, hd) };
     this.boxes.push(b); return b;
   }
   // kör (p,r) kitolása az akadályokból; lift = a ló pillanatnyi magassága ugrás közben
+  // fa/szikla a haladási irányban → merre érdemes kikerülni (-1..1, jobbra pozitív)
+  dodge(x, z, fx, fz, look, body) {
+    const rx = fz, rz = -fx; let best = 0, bw = 0;
+    const i0 = Math.floor((x - look) / 8), i1 = Math.floor((x + look) / 8), j0 = Math.floor((z - look) / 8), j1 = Math.floor((z + look) / 8);
+    const seen = this._seenD || (this._seenD = new Set()); seen.clear();
+    for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) {
+      const a = this.circles.get(i * 4096 + j); if (!a) continue;
+      for (const c of a) {
+        if (seen.has(c) || !c.dg) continue; seen.add(c);
+        const dx = c.x - x, dz = c.z - z, al = dx * fx + dz * fz; if (al < 0.6 || al > look) continue;
+        const lat = dx * rx + dz * rz, clr = c.r + body;
+        if (Math.abs(lat) >= clr) continue;
+        const w = (1 - Math.abs(lat) / clr) * (1 - al / look);
+        if (w > bw) { bw = w; best = (lat > 0 ? -1 : 1) * w; }
+      }
+    }
+    return best;
+  }
   resolve(p, r, lift) {
     let hit = false;
     const i = Math.floor(p.x / 8), j = Math.floor(p.z / 8);

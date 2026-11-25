@@ -11,9 +11,9 @@ Az app egyetlen statikus weboldal. Nincs szükség szerverre, fiókra vagy telep
   - **Tó** kacsákkal, a partján **nyírfás**.
   - **Tanya** házzal, csűrrel, kúttal, **almáskerttel**, **veteményessel** és **birkakarámmal**, mellette **levendulamező** pillangókkal.
   - **Várrom** egy dombtetőn, toronnyal és zászlóval.
-  - **Őszi erdő** narancs és vörös lombbal, nagy **fenyves** és **lombos erdő** őzekkel, **sziklás fennsík**.
+  - **Őszi erdő** narancs és vörös lombbal, nagy **fenyves** és **lombos erdő** őzekkel, **sziklás fennsík**. Az erdők ritkásak, a fenyők alsó ágai lovasmagasság fölött kezdődnek, és a ló magától kikerüli a fatörzseket.
   - **Vadlovak rétje**, ahol öt vadló, köztük egy csikó legel.
-- **Állatok:** vadló-ménes (megijed, ha vágtában rohansz feléjük, de ha lassan közelítesz és megállsz, odajönnek), őzek, nyulak, birkák, kacsák, madárrajok, egy sas a szurdok fölött és pillangók.
+- **Állatok:** vadló-ménes (messziről is látszik, a térképen 🐴 jelzi, a kistérképen barna pöttyök; csak akkor ijed meg, ha vágtában rohansz közéjük, de ha lassan közelítesz és megállsz, odajönnek), őzek, nyulak, birkák, kacsák, madárrajok, egy sas a szurdok fölött és pillangók.
 - **Négy járásmód:** lépés, ügetés, vágta és galopp, mindegyik saját lábmozgással. A lovas ügetésben könnyít, galoppban előrehajol.
 - **Ugratás:** 8 akadályos díjugrató pálya és 10 akadályos **terepugrató pálya**, időméréssel és hibapontokkal. Az ösvény mentén a tájhoz illő akadályok: farönk, sövény, kőfal, korlát, tyúkól, hordók, szalmabála-fal, kapu, sziklafal, az erdőkben kidőlt fák.
 - **Gondozás az istállónál:** széna, víz, zab, alma, répa, csutakolás (ujjal kell húzni a lovon), patakaparás, simogatás.

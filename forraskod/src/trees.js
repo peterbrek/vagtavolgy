@@ -126,14 +126,15 @@ function decGeo(P = DEC) {
 
 function conGeo() {
   const B = new Builder(), r = mulberry32(77), V = THREE.Vector3;
-  const t = new THREE.CylinderGeometry(0.1, 0.27, 9.4, 7, 1, true); t.translate(0, 4.7, 0); B.addGeo(t, 0.9);
+  // az alsó ágak lovasmagasság fölött kezdődnek, hogy át lehessen lovagolni a fák között
+  const t = new THREE.CylinderGeometry(0.1, 0.29, 10.8, 7, 1, true); t.translate(0, 5.4, 0); B.addGeo(t, 0.9);
   const tiers = 8;
   for (let i = 0; i < tiers; i++) {
-    const y = 1.5 + i * 1.02, R = 2.6 * (1 - i / (tiers + 0.6)) + 0.35, n = 9 - Math.floor(i / 3);
+    const y = 2.85 + i * 0.98, R = 2.5 * (1 - i / (tiers + 0.6)) + 0.35, n = 9 - Math.floor(i / 3);
     for (let k = 0; k < n; k++) {
       const a = (k / n) * Math.PI * 2 + i * 0.7 + r() * 0.3;
       const out = new V(Math.cos(a), 0, Math.sin(a)), side = new V(-Math.sin(a), 0, Math.cos(a));
-      const droop = R * (0.38 + r() * 0.12), w = R * 0.42 + 0.15;
+      const droop = R * ((i < 2 ? 0.3 : 0.38) + r() * 0.1), w = R * 0.42 + 0.15;
       const p0 = new V(0, y, 0).addScaledVector(out, 0.12), p1 = new V(0, y - droop, 0).addScaledVector(out, R);
       const shade0 = 0.55 + i / tiers * 0.35, shade1 = 0.85 + i / tiers * 0.3;
       const nUp = out.clone().multiplyScalar(0.55).add(new V(0, 0.85, 0)).normalize();
@@ -149,7 +150,7 @@ function conGeo() {
   // csúcs
   for (let k = 0; k < 3; k++) {
     const a = k * Math.PI / 3, side = new V(Math.cos(a), 0, Math.sin(a)), n = new V(-Math.sin(a), 0.3, Math.cos(a)).normalize();
-    const b0 = new V(0, 8.9, 0), b1 = new V(0, 10.4, 0);
+    const b0 = new V(0, 10.1, 0), b1 = new V(0, 11.7, 0);
     B.quad(b0.clone().addScaledVector(side, -0.5), b0.clone().addScaledVector(side, 0.5), b1.clone().addScaledVector(side, 0.08), b1.clone().addScaledVector(side, -0.08), n, n, n, n,
       [[0, 0], [0, 1], [LEAF_U1, 0.55], [LEAF_U1, 0.45]], [0.95, 0.95, 1.05, 1.05]);
   }

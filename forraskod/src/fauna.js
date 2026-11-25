@@ -1,10 +1,11 @@
 import * as THREE from 'three';
-import { Horse } from './horse.js';
+import { Horse, COATS } from './horse.js';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { REG, LAKE, WATER, HOME } from './world.js';
 import { clamp, lerp, damp, dampAngle, wrapAngle, mulberry32, smoothstep } from './noise.js';
 
 const V3 = THREE.Vector3;
+const ZERO = new THREE.Matrix4().makeScale(0, 0, 0);
 const std = (c, o = {}) => new THREE.MeshStandardMaterial({ color: c, roughness: 0.8, ...o });
 let SHADOW = true;
 function mk(geo, mat, parent, [x, y, z] = [0, 0, 0], [sx, sy, sz] = [1, 1, 1]) {
@@ -15,7 +16,7 @@ const gaitOf = (v) => (v < 0.12 ? 'stand' : v < 2.9 ? 'walk' : v < 5.9 ? 'trot' 
 // ---------- vadlovak ----------
 class WildHorse {
   constructor(scene, def, rnd) {
-    this.name = def.name; this.scale = def.scale;
+    this.name = def.name; this.scale = def.scale; this.coat = def.coat;
     const h = this.h = new Horse();
     h.setCoat(def.coat, { blaze: rnd() < 0.5, socks: rnd() < 0.35 }); h.setTack({}); h.setDirt(0.12);
     h.root.scale.setScalar(def.scale); scene.add(h.root);
@@ -103,6 +104,7 @@ export class Fauna {
     ];
     this.wild = defs.map((d) => new WildHorse(scene, { ...d, x: W.x + d.ox, z: W.z + d.oz }, rnd));
     this.wild[4].mother = this.wild[1];
+    this.buildFar();
     this.herd = { x: W.x, z: W.z, t: 10, flee: 0, fx: 0, fz: 0, curious: null, stillT: 0 };
     // állatok
     this.critters = [];
@@ -115,6 +117,32 @@ export class Fauna {
     for (let i = 0; i < 6; i++) { const a = rnd() * 6.28, d = LAKE.r * (0.2 + rnd() * 0.45); this.critters.push(new Critter('duck', scene, LAKE.x + Math.cos(a) * d, LAKE.z + Math.sin(a) * d, rnd, { male: i % 2 === 0 })); }
     this.buildBirds(); this.buildButterflies();
     this.events = [];
+  }
+
+  // távoli LOD: egyetlen összevont, álló ló-modell példányosítva (1 rajzhívás az egész ménesre)
+  buildFar() {
+    const h = this.wild[0].h, root = h.root, keep = { p: root.position.clone(), r: root.rotation.clone(), s: root.scale.clone() };
+    root.position.set(0, 0, 0); root.rotation.set(0, 0, 0); root.scale.setScalar(1);
+    for (let i = 0; i < 4; i++) h.update(0.05, { gait: 'stand', v: 0, yawRate: 0, jumpT: -1, mode: 'ride', lookYaw: 0 });
+    root.updateMatrixWorld(true);
+    const coatMats = new Set(Object.values(h.mats)), shown = (o) => { for (let q = o; q; q = q.parent) { if (!q.visible) return false; if (q === root) return true; } return true; };
+    const geos = [], col = new THREE.Color();
+    root.traverse((m) => {
+      if (!m.isMesh || !shown(m) || m.material === h.hairMat) return;
+      const coat = coatMats.has(m.material);
+      if (!coat && m.material !== h.hoofMat) return;
+      let g = m.geometry.clone(); if (g.index) g = g.toNonIndexed();
+      for (const k of Object.keys(g.attributes)) if (k !== 'position' && k !== 'normal') g.deleteAttribute(k);
+      g.applyMatrix4(m.matrixWorld);
+      col.set(coat ? '#ffffff' : '#3a332c'); const n = g.attributes.position.count, c = new Float32Array(n * 3);
+      for (let i = 0; i < n; i++) { c[i * 3] = col.r; c[i * 3 + 1] = col.g; c[i * 3 + 2] = col.b; }
+      g.setAttribute('color', new THREE.BufferAttribute(c, 3)); geos.push(g);
+    });
+    root.position.copy(keep.p); root.rotation.copy(keep.r); root.scale.copy(keep.s);
+    const far = this.far = new THREE.InstancedMesh(mergeGeometries(geos), new THREE.MeshLambertMaterial({ vertexColors: true }), this.wild.length);
+    far.frustumCulled = false; far.castShadow = false; this.scene.add(far);
+    const z = new THREE.Matrix4().makeScale(0, 0, 0);
+    this.wild.forEach((w, i) => { const c = COATS[w.coat]; far.setColorAt(i, new THREE.Color(c.patch && w.coat === 'tarka' ? '#c9b9a6' : c.base)); far.setMatrixAt(i, z); });
   }
 
   buildBirds() {
@@ -191,19 +219,23 @@ export class Fauna {
     const anyNear = this.wild.some((w) => Math.hypot(w.x - ctx.px, w.z - ctx.pz) < 170);
     // ijedés
     let closest = 999; for (const w of this.wild) closest = Math.min(closest, Math.hypot(w.x - ctx.px, w.z - ctx.pz));
-    if (ctx.mode === 'ride' && H.flee <= 0 && (closest < 24 && ctx.pv > 3.2 || closest < 7 && ctx.pv > 1.2 && !H.curious)) {
-      H.flee = 7 + rnd() * 3; let ax = H.x - ctx.px, az = H.z - ctx.pz; const l = Math.hypot(ax, az) || 1; ax /= l; az /= l;
-      let tx = H.x + ax * 70, tz = H.z + az * 70;
-      const dc = Math.hypot(tx - Wr.x, tz - Wr.z); if (dc > Wr.r) { tx = Wr.x + (tx - Wr.x) / dc * Wr.r * 0.8 - az * 30; tz = Wr.z + (tz - Wr.z) / dc * Wr.r * 0.8 + ax * 30; }
-      H.x = tx; H.z = tz; H.curious = null;
+    // csak a közvetlen közelükbe vágtató lovastól ijednek meg, és nem futnak messzire
+    if (ctx.mode === 'ride' && H.flee <= 0 && (closest < 16 && ctx.pv > 6.2 || closest < 6 && ctx.pv > 3.2 && !H.curious)) {
+      H.flee = 4.5 + rnd() * 2; let ax = H.x - ctx.px, az = H.z - ctx.pz; const l = Math.hypot(ax, az) || 1; ax /= l; az /= l;
+      let tx = H.x + ax * 38, tz = H.z + az * 38;
+      const dc = Math.hypot(tx - Wr.x, tz - Wr.z), lim = Wr.r * 0.55; if (dc > lim) { tx = Wr.x + (tx - Wr.x) / dc * lim - az * 18; tz = Wr.z + (tz - Wr.z) / dc * lim + ax * 18; }
+      H.x = tx; H.z = tz; H.curious = null; H.t = Math.min(H.t, 12);
       this.sound.neigh(clamp(1 - closest / 90, 0, 1)); this.events.push({ type: 'flee' });
     }
     H.flee -= dt;
     // vándorlás
     H.t -= dt;
-    if (H.t <= 0 && H.flee <= 0) { H.t = 25 + rnd() * 25; const a = rnd() * 6.28, d = rnd() * Wr.r * 0.65; H.x = Wr.x + Math.cos(a) * d; H.z = Wr.z + Math.sin(a) * d; }
+    if (H.t <= 0 && H.flee <= 0) { H.t = 25 + rnd() * 25; const a = rnd() * 6.28, d = rnd() * Wr.r * 0.38; H.x = Wr.x + Math.cos(a) * d; H.z = Wr.z + Math.sin(a) * d; }
     // kíváncsiság
-    if (ctx.mode === 'ride' && ctx.pv < 0.3 && closest < 20 && H.flee <= 0) H.stillT += dt; else if (ctx.pv > 1.2) { H.stillT = 0; H.curious = null; }
+    if (ctx.mode === 'ride' && ctx.pv < 0.3 && closest < 20 && H.flee <= 0) H.stillT += dt; else if (ctx.pv > 1.2 || ctx.mode !== 'ride' || closest > 30) { H.stillT = 0; H.curious = null; }
+    // ha a lovas közeledik, a ménes nyerítéssel jelez
+    if (dP < 150 && !this.heard) { this.heard = true; this.sound.neigh(0.35); this.events.push({ type: 'near' }); }
+    if (dP > 260) this.heard = false;
     if (H.stillT > 3 && !H.curious) { let best = null, bd = 99; for (const w of this.wild) { if (w.mother) continue; const d = Math.hypot(w.x - ctx.px, w.z - ctx.pz); if (d < bd) { bd = d; best = w; } } H.curious = best; if (best) this.events.push({ type: 'curious', name: best.name }); }
     for (const w of this.wild) {
       let tx = H.x + w.ox, tz = H.z + w.oz;
@@ -225,8 +257,9 @@ export class Fauna {
       for (const o of this.wild) if (o !== w) { const ex = w.x - o.x, ez = w.z - o.z, ed = Math.hypot(ex, ez), md = 2.2 * (w.scale + o.scale) / 2; if (ed < md && ed > 0.01) { w.x += ex / ed * (md - ed) * 0.5; w.z += ez / ed * (md - ed) * 0.5; } }
       const ep = Math.hypot(w.x - ctx.px, w.z - ctx.pz); if (ep < 2.6 && ep > 0.01) { w.x += (w.x - ctx.px) / ep * (2.6 - ep); w.z += (w.z - ctx.pz) / ep * (2.6 - ep); }
       w.gait = gaitOf(w.v);
-      const dc = Math.hypot(w.x - ctx.cx, w.z - ctx.cz), vis = dc < 125;
+      const dc = Math.hypot(w.x - ctx.cx, w.z - ctx.cz), vis = dc < 105, farVis = !vis && dc < 280, i = this.wild.indexOf(w);
       w.h.root.visible = vis;
+      if (farVis || w.farOn) { w.farOn = farVis; if (farVis) { this.placeHorse(w, dt); w.h.root.updateMatrix(); this.far.setMatrixAt(i, w.h.root.matrix); } else this.far.setMatrixAt(i, ZERO); this.far.instanceMatrix.needsUpdate = true; }
       if (!vis) continue;
       w.h.setDetail(dc < 45);
       const sh = dc < 40; if (w.shadow !== sh) { w.shadow = sh; for (const m of w.h.meshes) m.castShadow = sh; }
@@ -293,6 +326,7 @@ export class Fauna {
     c.g.position.set(c.x, y, c.z); c.g.rotation.set(pitch, c.yaw, 0, 'YXZ');
   }
 
+  herdPos() { let x = 0, z = 0; for (const w of this.wild) { x += w.x; z += w.z; } return { x: x / this.wild.length, z: z / this.wild.length }; }
   nearestWild(x, z) {
     let best = null, bd = 99;
     for (const w of this.wild) { const d = Math.hypot(w.x - x, w.z - z); if (d < bd) { bd = d; best = w; } }

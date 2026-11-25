@@ -416,7 +416,12 @@ function rideUpdate(dt) {
   if (R.jump.queued && m > 0.12) {
     const o = R.jump.queued, q = aheadOf(o);
     if (q) { const tx = o.x + o.f.x * q.sg * 2.5, tz = o.z + o.f.y * q.sg * 2.5; desired = Math.atan2(tx - R.x, tz - R.z); }
-  }
+  } else if (m > 0.12 && R.v > 1.2 && !R.jump.active) {
+    // fák kerülgetése: a ló magától kitér a törzsek elől
+    const dg = world.dodge(R.x, R.z, Math.sin(R.yaw), Math.cos(R.yaw), 2.2 + R.v * 0.42, 1.25);
+    R.dodge = damp(R.dodge || 0, dg, 10, dt);
+  } else R.dodge = damp(R.dodge || 0, 0, 10, dt);
+  if (Math.abs(R.dodge || 0) > 0.01 && !R.jump.queued) desired = R.yaw + clamp(wrapAngle(desired - R.yaw) + R.dodge * 0.95, -1.4, 1.4);
   if (gaitT === 'gallop' && (R.tired || R.energy < 6)) { gaitT = 'canter'; if (!R.tired) { R.tired = true; toast('A lovad elfáradt – pihentesd lépésben!', 'bad'); } }
   if (R.tired && R.energy > 40) R.tired = false;
   if (R.refuse > 0) { R.refuse -= dt; gaitT = 'stand'; R.v = 0; }
@@ -487,8 +492,11 @@ function rideUpdate(dt) {
   for (const [off, r] of [[0.78, 0.42], [-0.62, 0.42]]) {
     const p = { x: nx + fx * off, z: nz + fz * off }, ox = p.x, oz = p.z;
     if (world.resolve(p, r, R.lift)) {
-      nx += p.x - ox; nz += p.z - oz;
-      if (off > 0 && !R.jump.active) R.v *= Math.pow(0.05, dt);
+      const px = p.x - ox, pz = p.z - oz, pl = Math.hypot(px, pz) || 1;
+      nx += px; nz += pz;
+      // szemből ütközve megáll, súrolva csak lassul
+      const head = clamp(-(px * fx + pz * fz) / pl, 0, 1);
+      if (off > 0 && !R.jump.active) R.v *= Math.pow(lerp(0.7, 0.05, head), dt);
     }
   }
   // átkelés akadályon / kapun
@@ -848,7 +856,8 @@ function openBigMap() {
   for (const it of props.horseshoes.items) if (!it.taken) { const [x, y] = toS(it.x, it.z); ctx.fillStyle = '#ffd23a'; ctx.strokeStyle = '#7a5200'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(x, y, 7, 0, TAU); ctx.fill(); ctx.stroke(); }
   const label = (txt, x, z) => { const [sx, sy] = toS(x, z); ctx.font = 'bold 27px system-ui'; ctx.textAlign = 'center'; ctx.lineWidth = 7; ctx.strokeStyle = 'rgba(255,255,255,.92)'; ctx.strokeText(txt, sx, sy); ctx.fillStyle = '#2a2733'; ctx.fillText(txt, sx, sy); };
   label('🏠 Istálló', STABLE.x, STABLE.z - 10); label('🏁 Aréna', ARENA.x, ARENA.z - ARENA.hd - 6); label('Tó', LAKE.x, LAKE.z);
-  for (const L of props.landmarks) if (!['to'].includes(L.key)) label((S.found.includes(L.key) ? '' : '❔ ') + L.name, L.x, L.z + (L.key === 'vizeses' ? 14 : 0));
+  for (const L of props.landmarks) if (!['to'].includes(L.key)) label((S.found.includes(L.key) ? '' : '❔ ') + L.name, L.x, L.z + (L.key === 'vizeses' ? 14 : L.key === 'vadlovak' ? -38 : 0));
+  { const hp = fauna.herdPos(), [hx, hy] = toS(hp.x, hp.z); ctx.font = '46px system-ui'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('🐴', hx, hy); ctx.textBaseline = 'alphabetic'; }
   const [px, py] = toS(R.x, R.z);
   ctx.save(); ctx.translate(px, py); ctx.rotate(Math.atan2(Math.cos(R.yaw), Math.sin(R.yaw)));
   ctx.fillStyle = '#e8402a'; ctx.strokeStyle = '#fff'; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(16, 0); ctx.lineTo(-10, 10); ctx.lineTo(-5, 0); ctx.lineTo(-10, -10); ctx.closePath(); ctx.fill(); ctx.stroke(); ctx.restore();
@@ -863,6 +872,7 @@ function drawMini() {
   const toS = (x, z) => [W / 2 + (x - R.x) * k, W / 2 + (z - R.z) * k];
   const edge = (x, z, col, r) => { let [sx, sy] = toS(x, z); const dx = sx - W / 2, dy = sy - W / 2, d = Math.hypot(dx, dy); if (d > W / 2 - 10) { sx = W / 2 + dx / d * (W / 2 - 10); sy = W / 2 + dy / d * (W / 2 - 10); } ctx.fillStyle = col; ctx.beginPath(); ctx.arc(sx, sy, r, 0, TAU); ctx.fill(); ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.stroke(); };
   for (const it of props.horseshoes.items) if (!it.taken && Math.abs(it.x - R.x) < view * 0.6 && Math.abs(it.z - R.z) < view * 0.6) { const [x, y] = toS(it.x, it.z); ctx.fillStyle = '#ffd23a'; ctx.strokeStyle = '#7a5200'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(x, y, 6, 0, TAU); ctx.fill(); ctx.stroke(); }
+  for (const w of fauna.wild) if (Math.abs(w.x - R.x) < view * 0.5 && Math.abs(w.z - R.z) < view * 0.5) { const [x, y] = toS(w.x, w.z); ctx.fillStyle = '#6b3f1f'; ctx.strokeStyle = '#fff'; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(x, y, w.scale < 0.8 ? 3 : 4.5, 0, TAU); ctx.fill(); ctx.stroke(); }
   edge(STABLE.x, STABLE.z, '#b5452e', 7);
   if (R.course.active) { const c = R.course.c, t = R.course.next > c.jumps.length ? c.finish : c.jumps[R.course.next - 1]; edge(t.x, t.z, '#ff8a2a', 7); }
   ctx.translate(W / 2, W / 2); ctx.rotate(Math.atan2(Math.cos(R.yaw), Math.sin(R.yaw)));
@@ -996,7 +1006,7 @@ function update(dt) {
   props.update(dt); props.horseshoes.update(time, camera.position); props.collectUpdate(time, camera.position);
   world.fallUniform.value = time;
   const fev = fauna.update(dt, time, { px: R.x, pz: R.z, pv: R.mode === 'ride' ? R.v : 0, cx: camera.position.x, cz: camera.position.z, mode: R.mode });
-  if (R.mode === 'ride') for (const e of fev) { if (e.type === 'flee') msgOnce('flee', 'A vadlovak megijedtek! Lassan, lépésben közelíts hozzájuk.', 20); if (e.type === 'curious') msgOnce('cur', `${e.name} kíváncsian közelebb jön…`, 25); }
+  if (R.mode === 'ride') for (const e of fev) { if (e.type === 'flee') msgOnce('flee', 'A vadlovak megijedtek! Lassan, lépésben közelíts hozzájuk.', 20); if (e.type === 'curious') msgOnce('cur', `${e.name} kíváncsian közelebb jön…`, 25); if (e.type === 'near') msgOnce('herd', 'Nyerítés! Vadlovak legelnek a közelben 🐴', 90); }
   { const wb = world.waterfallBase, dw = Math.hypot(camera.position.x - wb.x, camera.position.z - wb.z);
     if (dw < 70 && Math.random() < dt * 30) parts.dust.emit(tmpV.set(wb.x + (Math.random() - 0.5) * 4, wb.y + 0.3, wb.z + (Math.random() - 0.5) * 4), (Math.random() - 0.5) * 1.5, 0.8 + Math.random() * 1.2, (Math.random() - 0.5) * 1.5, 1.4, 0.7, new THREE.Color('#eef6fb'), -0.3, 2);
     if (sound.ctx) sound.water(clamp(1 - dw / 70, 0, 1) * 0.3 + clamp(1 - world.creekDist(R.x, R.z) / 25, 0, 1) * 0.08); }
