@@ -37,7 +37,7 @@ Az app egyetlen statikus weboldal. Nincs szükség szerverre, fiókra vagy telep
 
 ## Díjugratás és terepugratás
 
-A zöld **START** kapun átlovagolva indul az idő. A díjugrató pálya az arénában van (8 akadály), a terepugrató pálya a tanyától keletre eső réten (10 akadály). Az akadályokat sorban kell átugrani (a narancs nyíl és a térkép mutatja a következőt), utána a piros **CÉL** kapun kell átmenni. A leverés és a megtorpanás 4-4 hibapontot ér, a harmadik megtorpanás kiesést jelent. A legjobb eredményt pályánként megjegyzi a játék. Mindkét pályára a menüből is oda lehet ugrani.
+A zöld **START** kapun átlovagolva indul az idő. A díjugrató pálya az arénában van (8 akadály), a terepugrató pálya az istállótól keletre eső réten (10 akadály). Az akadályokat sorban kell átugrani (a narancs nyíl és a térkép mutatja a következőt), utána a piros **CÉL** kapun kell átmenni. A leverés és a megtorpanás 4-4 hibapontot ér, a harmadik megtorpanás kiesést jelent. A legjobb eredményt pályánként megjegyzi a játék. Mindkét pályára a menüből is oda lehet ugrani.
 
 ## Cím
 
