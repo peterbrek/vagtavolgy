@@ -44,21 +44,21 @@ button{font:inherit;color:inherit;border:0;cursor:pointer;touch-action:manipulat
 .tst.good{background:rgba(46,140,80,.92)}.tst.bad{background:rgba(200,70,50,.92)}.tst.gold{background:linear-gradient(#f4c542,#e39a1f);color:#3a2500}
 @keyframes tin{from{opacity:0;transform:translateY(-8px) scale(.96)}}
 #ctx{position:absolute;left:50%;transform:translateX(-50%);bottom:calc(18px + var(--sab));display:flex;gap:10px}
-@media (orientation:portrait){#ctx{bottom:calc(132px + var(--sab))}}
+@media (orientation:portrait){#ctx{bottom:calc(196px + var(--sab))}}
 .cbtn{background:var(--acc2);color:#fff;font-weight:800;font-size:16px;padding:12px 20px;border-radius:16px;box-shadow:0 5px 0 #1d3d63,0 8px 18px rgba(0,0,0,.25)}
 .cbtn:active{transform:translateY(3px);box-shadow:0 2px 0 #1d3d63}
-#joyzone{position:absolute;left:0;bottom:0;width:48%;height:62%;touch-action:none}
+#joyzone{position:absolute;right:0;bottom:0;width:48%;height:62%;touch-action:none}
 #joybase{position:absolute;width:132px;height:132px;margin:-66px 0 0 -66px;border-radius:50%;background:radial-gradient(circle,rgba(255,255,255,.12) 0 38%,rgba(255,255,255,.22) 38% 39.5%,rgba(255,255,255,.12) 39.5% 64%,rgba(255,255,255,.25) 64% 65.5%,rgba(255,255,255,.14) 65.5%);border:3px solid rgba(255,255,255,.55);box-shadow:0 4px 18px rgba(0,0,0,.18);left:110px;bottom:auto;top:calc(100% - 120px - var(--sab));pointer-events:none;transition:opacity .2s}
 #joyknob{position:absolute;left:50%;top:50%;width:58px;height:58px;margin:-29px 0 0 -29px;border-radius:50%;background:rgba(255,255,255,.92);box-shadow:0 3px 10px rgba(0,0,0,.3)}
 #joyzone.idle #joybase{opacity:.55}
-#gaitlbl{position:absolute;left:calc(26px + var(--sal));bottom:calc(14px + var(--sab));font-weight:900;font-size:17px;color:#fff;text-shadow:0 1px 4px rgba(0,0,0,.5);pointer-events:none}
-#rbtns{position:absolute;right:calc(14px + var(--sar));bottom:calc(16px + var(--sab));display:grid;grid-template-columns:auto auto;grid-template-rows:auto auto;gap:12px;align-items:end;justify-items:center}
+#gaitlbl{position:absolute;right:calc(26px + var(--sar));bottom:calc(14px + var(--sab));font-weight:900;font-size:17px;color:#fff;text-shadow:0 1px 4px rgba(0,0,0,.5);pointer-events:none}
+#rbtns{position:absolute;left:calc(14px + var(--sal));bottom:calc(16px + var(--sab));display:grid;grid-template-columns:auto auto;grid-template-rows:auto auto;gap:12px;align-items:end;justify-items:center}
 #rbtns button{border-radius:50%;color:#fff;font-weight:900;box-shadow:0 5px 0 rgba(0,0,0,.25),0 8px 18px rgba(0,0,0,.25);touch-action:none}
-#btnJump{width:92px;height:92px;font-size:18px;background:radial-gradient(circle at 35% 30%,#ff9c55,#e2611d);grid-column:2;grid-row:1/3}
-#btnGallop{width:70px;height:70px;font-size:13px;background:radial-gradient(circle at 35% 30%,#6aa3e8,#2e5b8f);grid-column:1;grid-row:2}
+#btnJump{width:92px;height:92px;font-size:18px;background:radial-gradient(circle at 35% 30%,#ff9c55,#e2611d);grid-column:1;grid-row:1/3}
+#btnGallop{width:70px;height:70px;font-size:13px;background:radial-gradient(circle at 35% 30%,#6aa3e8,#2e5b8f);grid-column:2;grid-row:2}
 #btnGallop.on,#btnJump.on{transform:translateY(3px) scale(.96);filter:brightness(1.12)}
 #btnGallop.dis{filter:grayscale(1) brightness(.85)}
-#energy{grid-column:1;grid-row:1;width:70px;text-align:center;font-size:11px;font-weight:800;color:#fff;text-shadow:0 1px 3px rgba(0,0,0,.5)}
+#energy{grid-column:2;grid-row:1;width:70px;text-align:center;font-size:11px;font-weight:800;color:#fff;text-shadow:0 1px 3px rgba(0,0,0,.5)}
 #energy b{display:block;height:8px;border-radius:5px;background:rgba(0,0,0,.25);overflow:hidden;margin-top:2px;border:1px solid rgba(255,255,255,.6)}
 #energy s{display:block;height:100%;background:#ffd34d;width:100%}
 /* gondozás */
@@ -133,7 +133,10 @@ label.l{display:block;text-align:left;font-weight:800;font-size:13px;color:#555;
 #btnWalk:active{transform:translateY(3px);box-shadow:0 2px 0 #1d3d63}
 #hud.foot #energy,#hud.foot #btnJump{display:none}
 #hud.foot #rbtns{grid-template-columns:auto}
-#ctx{flex-wrap:wrap;justify-content:center;width:min(96vw,620px)}
+#hud.foot #btnGallop{grid-column:1}
+#ctx{flex-wrap:wrap;justify-content:center;width:min(96vw,620px);z-index:3}
+@media (orientation:landscape){#ctx{width:max(300px,calc(100vw - 470px))}}
+#rbtns{z-index:3}
 .tabs button{font-size:13px}
 .hlist{display:flex;flex-direction:column;gap:7px}
 .hrow{display:flex;align-items:center;gap:10px;background:#fff;border-radius:14px;padding:8px 10px;box-shadow:0 2px 6px rgba(0,0,0,.1)}

@@ -15,12 +15,12 @@ export class House {
   constructor(scene, world, P) {
     this.P = P; const { x, z } = P;
     this.root = new THREE.Group(); this.root.position.set(x, 0, z); scene.add(this.root);
-    this.boxes = []; // belső ütközők (ház-lokális AABB): [x0,z0,x1,z1]
+    this.boxes = []; // ütközők (ház-lokális AABB): [x0,z0,x1,z1,magasság]
     this.spots = {};
     this.inside = false;
     const rnd = mulberry32(808);
     const B = (w, h, d, m, px, py, pz, parent) => { const g = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), m); g.position.set(px, py, pz); g.castShadow = true; g.receiveShadow = true; parent.add(g); return g; };
-    const solid = (x0, z0, x1, z1) => this.boxes.push([Math.min(x0, x1), Math.min(z0, z1), Math.max(x0, x1), Math.max(z0, z1)]);
+    const solid = (x0, z0, x1, z1, h = 1.0) => this.boxes.push([Math.min(x0, x1), Math.min(z0, z1), Math.max(x0, x1), Math.max(z0, z1), h]);
 
     // ---------- anyagok, textúrák ----------
     const plank = canvasTexture(256, 256, (c, W, H) => {
@@ -45,11 +45,12 @@ export class House {
       black: std('#1d1f22', 0.4), counter: lam('#e9e2d2'), cab: lam('#7fa6a0'), bed: lam('#e9dccb'), duvet: std('#e8a5b8', 0.95), pillow: std('#ffffff', 0.9),
       plant: lam('#3f8a3a'), pot: lam('#b5653d'), book: [lam('#b8463a'), lam('#3a6fb8'), lam('#e0b23a'), lam('#4f9a5a'), lam('#7a4fa0')],
       glass: new THREE.MeshStandardMaterial({ color: '#3a4d58', roughness: 0.2, emissive: '#ffb860', emissiveIntensity: 0 }),
+      glassIn: new THREE.MeshStandardMaterial({ color: '#2a3a4c', roughness: 0.3, emissive: '#d4e9ff', emissiveIntensity: 1 }),
       lamp: new THREE.MeshStandardMaterial({ color: '#fff3d0', roughness: 0.5, emissive: '#ffd890', emissiveIntensity: 0.15 }),
       water: std('#9fd3ea', 0.1, { transparent: true, opacity: 0.85 }),
       tv: new THREE.MeshBasicMaterial({ color: '#0c0f14' }),
     };
-    this.glassMat = M.glass; this.lampMat = M.lamp;
+    this.glassMat = M.glass; this.glassInMat = M.glassIn; this.lampMat = M.lamp;
 
     // ---------- csoportok ----------
     const ext = this.ext = new THREE.Group(); this.root.add(ext);        // alap, tornác, kémény (mindig látszik)
@@ -70,7 +71,7 @@ export class House {
       const len = Math.hypot(x1 - x0, z1 - z0), ax = Math.abs(x1 - x0) > Math.abs(z1 - z0);
       const w = ax ? len : th, d = ax ? th : len;
       B(w, WH, d, mat, (x0 + x1) / 2, FLOOR + WH / 2, (z0 + z1) / 2, walls);
-      solid((x0 + x1) / 2 - w / 2, (z0 + z1) / 2 - d / 2, (x0 + x1) / 2 + w / 2, (z0 + z1) / 2 + d / 2);
+      solid((x0 + x1) / 2 - w / 2, (z0 + z1) / 2 - d / 2, (x0 + x1) / 2 + w / 2, (z0 + z1) / 2 + d / 2, 99);
     };
     const DOOR = [-1.4, -0.3]; // bejárati ajtó (x) az elülső falon
     const ez = HZ + T / 2, ex = HX + T / 2;
@@ -103,7 +104,7 @@ export class House {
       const g = new THREE.Group(); g.position.set(px, FLOOR + y + h / 2, pz); g.rotation.y = Math.atan2(nx, nz); wallItems.add(g);
       for (const side of [1, -1]) {
         const o = side * (T / 2 + 0.012);
-        B(w, h, 0.02, M.glass, 0, 0, o, g);
+        B(w, h, 0.02, side > 0 ? M.glass : M.glassIn, 0, 0, o, g);
         B(w + 0.14, 0.09, 0.05, M.trim, 0, h / 2, o, g); B(w + 0.14, 0.09, 0.05, M.trim, 0, -h / 2, o, g);
         B(0.09, h, 0.05, M.trim, w / 2, 0, o, g); B(0.09, h, 0.05, M.trim, -w / 2, 0, o, g);
         B(0.05, h, 0.05, M.trim, 0, 0, o, g); B(w, 0.05, 0.05, M.trim, 0, 0.05, o, g);
@@ -139,7 +140,7 @@ export class House {
     this.doorIn = new THREE.Vector3((DOOR[0] + DOOR[1]) / 2, FLOOR, ez - 0.75);
 
     // ---------- bútorok ----------
-    const F = (w, h, d, m, px, py, pz, coll = true, parent = inner) => { const b = B(w, h, d, m, px, FLOOR + py, pz, parent); if (coll) solid(px - w / 2, pz - d / 2, px + w / 2, pz + d / 2); return b; };
+    const F = (w, h, d, m, px, py, pz, coll = true, parent = inner) => { const b = B(w, h, d, m, px, FLOOR + py, pz, parent); if (coll) solid(px - w / 2, pz - d / 2, px + w / 2, pz + d / 2, FLOOR + py + h / 2); return b; };
     const cyl = (r, h, m, px, py, pz, seg = 14, parent = inner) => { const c = new THREE.Mesh(new THREE.CylinderGeometry(r, r, h, seg), m); c.position.set(px, FLOOR + py, pz); c.castShadow = true; c.receiveShadow = true; parent.add(c); return c; };
     // NAPPALI — kanapé a válaszfalnak háttal, szemben a TV
     const sx0 = -3.9, sz0 = ZC + IT / 2 + 0.46;
@@ -163,7 +164,7 @@ export class House {
     for (let sh = 0; sh < 4; sh++) { F(0.3, 0.03, 1.0, M.dark, -HX + 0.22, 0.35 + sh * 0.45, 3.4, false); for (let k = 0; k < 7; k++) F(0.2, 0.26 + rnd() * 0.08, 0.09, M.book[(k + sh) % 5], -HX + 0.24, 0.5 + sh * 0.45, 3.0 + k * 0.12, false); }
     cyl(0.16, 0.03, M.dark, -HX + 0.35, 0.02, ZC + 0.4); cyl(0.025, 1.55, M.dark, -HX + 0.35, 0.8, ZC + 0.4, 6);
     { const sh = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.24, 0.3, 14, 1, true), M.lamp); sh.position.set(-HX + 0.35, FLOOR + 1.6, ZC + 0.4); inner.add(sh); }
-    solid(-HX, ZC, -HX + 0.55, ZC + 0.6);
+    solid(-HX, ZC, -HX + 0.55, ZC + 0.6, 2.0);
     const plant = (px, pz, s = 1) => { cyl(0.18 * s, 0.35 * s, M.pot, px, 0.17 * s, pz, 10); for (let k = 0; k < 6; k++) { const l = new THREE.Mesh(new THREE.SphereGeometry(0.2 * s, 7, 5), M.plant); l.position.set(px + Math.cos(k) * 0.13 * s, FLOOR + (0.5 + (k % 3) * 0.14) * s, pz + Math.sin(k * 1.7) * 0.13 * s); l.scale.y = 1.4; inner.add(l); } solid(px - 0.2 * s, pz - 0.2 * s, px + 0.2 * s, pz + 0.2 * s); };
     plant(-HX + 0.35, HZ - 0.35); plant(0.25, HZ - 0.3, 0.8);
     // KONYHA — pult a keleti falon, tűzhely, mosogató, hűtő, étkezőasztal
@@ -214,9 +215,16 @@ export class House {
     // ---------- fények ----------
     this.light = new THREE.PointLight('#ffd9a0', 0, 13, 1.6); this.light.position.set(-1.0, FLOOR + 2.4, 0.4); this.root.add(this.light);
 
+    // mennyezet (bentről látszik)
+    this.ceilMat = new THREE.MeshLambertMaterial({ color: '#f6f1e8', emissive: '#a39d92', emissiveIntensity: 0.8 });
+    { const c = new THREE.Mesh(new THREE.PlaneGeometry(2 * HX + 0.1, 2 * HZ + 0.1), this.ceilMat); c.rotation.x = Math.PI / 2; c.position.set(0, FLOOR + WH - 0.02, 0); c.receiveShadow = true; this.root.add(c); this.ceiling = c;
+      for (const [cx, cz] of [[-2.6, 2.1], [3.2, 2.1], [-2.4, -2.6], [3.6, -2.6]]) { const l = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.26, 0.06, 16), M.lamp); l.position.set(cx, FLOOR + WH - 0.06, cz); this.root.add(l); } }
     mergeStatic(ext); mergeStatic(walls); mergeStatic(wallItems); mergeStatic(roof); mergeStatic(inner);
-    // kívül: egy ütköző a teljes alapra (ló és gyalogos sem megy át rajta)
-    world.addBox(x, z, HX + T + 0.15, HZ + T + 0.15, 0, 99);
+    // ütközők a világban: falak és bútorok (be lehet sétálni az ajtón); a ló nem fér be
+    for (const [x0, z0, x1, z1, h] of this.boxes) world.addBox(x + (x0 + x1) / 2, z + (z0 + z1) / 2, (x1 - x0) / 2, (z1 - z0) / 2, 0, h);
+    world.addBox(x + (DOOR[0] + DOOR[1]) / 2, z + ez + 0.5, 0.75, 0.45, 0, 99).only = 'horse';
+    for (const xx of [PX[0] + 0.1, PX[1] - 0.1]) world.addCircle(x + xx, z + PZ0 + PD - 0.12, 0.12, 99);
+    this.porch = { x0: PX[0], x1: PX[1], z0: PZ0 - 0.1, z1: PZ0 + PD };
   }
 
   // világ ↔ ház-lokális (a ház nincs elforgatva)
@@ -225,30 +233,15 @@ export class House {
   floorY() { return FLOOR; }
 
   setInside(on) {
-    this.inside = on;
-    this.roofG.visible = !on; this.wallItems.visible = !on;
-    this.walls.scale.y = on ? 0.36 : 1;
+    if (this.inside === on) return; this.inside = on;
+    // bent a falak és a tető nem vetnek árnyékot, így a szobák világosak maradnak
+    for (const g of [this.walls, this.roofG]) g.traverse((o) => { if (o.isMesh) { if (o.userData.cs === undefined) o.userData.cs = o.castShadow; o.castShadow = on ? false : o.userData.cs; } });
   }
   setTV(on) { this.tv.material = on ? this.tvOn : this.M.tv; }
-
-  // gyalogos kitolása a belső falakból és bútorokból (világkoordinátás p)
-  resolve(p, r) {
-    let lx = p.x - this.P.x, lz = p.z - this.P.z, hit = false;
-    for (const [x0, z0, x1, z1] of this.boxes) {
-      const cx = clamp(lx, x0, x1), cz = clamp(lz, z0, z1); let dx = lx - cx, dz = lz - cz; const d = Math.hypot(dx, dz);
-      if (d >= r) continue; hit = true;
-      if (d < 1e-4) { // belül: a legközelebbi oldalra
-        const o = [lx - x0, x1 - lx, lz - z0, z1 - lz], m = Math.min(...o), k = o.indexOf(m);
-        if (k === 0) lx = x0 - r; else if (k === 1) lx = x1 + r; else if (k === 2) lz = z0 - r; else lz = z1 + r;
-      } else { lx = cx + dx / d * r; lz = cz + dz / d * r; }
-    }
-    lx = clamp(lx, -HX + r, HX - r); lz = clamp(lz, -HZ + r, HZ + 0.6);
-    p.x = lx + this.P.x; p.z = lz + this.P.z; return hit;
-  }
-  // a gyalogos kifelé lépett az ajtón?
-  atDoorInside(x, z) { const l = this.toLocal(x, z); return l.z > HZ - 0.05 && l.x > -1.45 && l.x < -0.25; }
-  atDoorOutside(x, z) { const l = this.toLocal(x, z); return Math.abs(l.x - this.doorOut.x) < 0.7 && l.z > HZ && l.z < HZ + T + 0.8; }
+  contains(x, z) { const l = this.toLocal(x, z); return Math.abs(l.x) < HX + 0.02 && Math.abs(l.z) < HZ + 0.02; }
+  onFloor(x, z) { const l = this.toLocal(x, z); return (Math.abs(l.x) < HX + T + 0.15 && Math.abs(l.z) < HZ + T + 0.15) || (l.x > this.porch.x0 && l.x < this.porch.x1 && l.z > this.porch.z0 && l.z < this.porch.z1); }
   nearDoorOutside(x, z) { const l = this.toLocal(x, z); return Math.abs(l.x - this.doorOut.x) < 1.0 && l.z > HZ + T && l.z < HZ + T + 3.0; }
+  ceilingY() { return FLOOR + WH; }
   nearSpot(x, z, rad = 1.25) {
     const l = this.toLocal(x, z); let best = null, bd = rad;
     for (const k in this.spots) { const s = this.spots[k]; const d = Math.hypot(l.x - s.x, l.z - s.z); if (d < bd) { bd = d; best = { key: k, ...s }; } }

@@ -15,8 +15,8 @@ Az app egyetlen statikus weboldal. Nincs szükség szerverre, fiókra vagy telep
   - **Vadlovak rétje**, ahol öt vadló, köztük egy csikó legel.
 - **Állatok:** vadló-ménes (messziről is látszik, a térképen 🐴 jelzi, a kistérképen barna pöttyök; csak akkor ijed meg, ha vágtában rohansz közéjük, de ha lassan közelítesz és megállsz, odajönnek), őzek, nyulak, birkák, kacsák, madárrajok, egy sas a szurdok fölött és pillangók.
 - **Hat boksz, hat ló:** az istállóban 6 boksz van, a lovak a félig nyitott ajtók fölött kinéznek, az ajtókon névtábla. A gondozásnál a **Lovak** fülön új lovat hozhatsz (név, szőrszín, jegyek), és kiválaszthatod, melyikkel lovagolsz.
-- **Le- és felszállás:** megállva a **Leszállok** gombbal szállsz le. A ló ott marad és legel, mellette állva visszaülhetsz, vagy **vezetheted** (követ). Az istállónál **Boxba** viheted, vagy kikötheted gondozásra. A kint hagyott lovakat a térkép mutatja.
-- **Ház az istálló mellett:** nappali kanapéval és tévével, konyha hűtővel és étkezőasztallal, fürdőszoba káddal, hálószoba franciaággyal. Bent felülről látsz be a szobákba. Leülhetsz a kanapéra, megfürödhetsz, lefekhetsz az ágyba és **reggelig alhatsz** (a boxban álló lovak éjjel szénát és vizet kapnak). A hűtőből naponta alma és répa jár a lovaknak.
+- **Le- és felszállás:** megállva a **Leszállok** gombbal szállsz le. A ló ott marad és legel (a lovas nem megy át a lovakon), mellette állva visszaülhetsz, vagy **vezetheted** (követ). Az istállónál **Boxba** viheted, vagy kikötheted gondozásra. A kint hagyott lovakat a térkép mutatja.
+- **Ház az istálló mellett:** nappali kanapéval és tévével, konyha hűtővel és étkezőasztallal, fürdőszoba káddal, hálószoba franciaággyal. Az ajtón egyszerűen be lehet sétálni, bent is a lovas mögül látsz, mint kint. Leülhetsz a kanapéra, megfürödhetsz, lefekhetsz az ágyba és **reggelig alhatsz** (a boxban álló lovak éjjel szénát és vizet kapnak). A hűtőből naponta alma és répa jár a lovaknak.
 - **Napszakok:** reggel, nappal, este, éjszaka (csillagok, hold, világító ablakok és lámpák), vagy folyamatosan telő idő (1 perc = 1 óra).
 - **Évszakok:** tavasz (friss zöld, virágzó almafák), nyár, ősz (színes lomb, hulló levelek), tél (hó, csupasz fák, havas fenyők és tetők, befagyott tó, hóesés).
 - **Négy járásmód:** lépés, ügetés, vágta és galopp, mindegyik saját lábmozgással. A lovas ügetésben könnyít, galoppban előrehajol.
@@ -32,10 +32,10 @@ Az app egyetlen statikus weboldal. Nincs szükség szerverre, fiókra vagy telep
 
 | Mit | Hogyan |
 | --- | --- |
-| Irány és tempó | Bal oldalon húzd az ujjad arra, amerre menni szeretnél. Kicsit húzva lépés, félig ügetés, teljesen vágta. |
-| Galopp | Tartsd nyomva a kék **Galopp** gombot. Fárasztó, az energia lépésben vagy állva töltődik vissza. |
-| Ugrás | Ügetésben vagy vágtában nyomd meg a narancs **Ugrás** gombot az akadály előtt. Ha korán nyomod, a ló kivárja a jó elugrási pontot. |
-| Körbenézés | Jobb oldalon húzd az ujjad. |
+| Irány és tempó | A képernyő **jobb oldalán** húzd az ujjad arra, amerre menni szeretnél. Kicsit húzva lépés, félig ügetés, teljesen vágta. |
+| Galopp | Tartsd nyomva a bal oldali kék **Galopp** gombot. Fárasztó, az energia lépésben vagy állva töltődik vissza. |
+| Ugrás | Ügetésben vagy vágtában nyomd meg a bal oldali narancs **Ugrás** gombot az akadály előtt. Ha korán nyomod, a ló kivárja a jó elugrási pontot. |
+| Körbenézés | A kép többi részén (bal oldalt, középen) húzd az ujjad. |
 | Istálló | Az istálló közelében megjelenik az **Istálló** gomb, de a menüből bárhonnan haza lehet menni. |
 | Itatás | Sétálj be a tóba, a patakba vagy a vízesés medencéjébe, és nyomd meg az **Itatás** gombot. |
 | Vadló etetése | Ha van almád, és egy vadló mellett állsz, megjelenik az **Almát adok** gomb. |
@@ -43,7 +43,7 @@ Az app egyetlen statikus weboldal. Nincs szükség szerverre, fiókra vagy telep
 | Felszállás, vezetés | Állj a lovad mellé: **Felszállok** (ha nyereg és kantár van rajta) vagy **Vezetem**. |
 | Ló a boxba | Lovon vagy vezetve az istálló előtt: **Boxba**. A kikötőnél: **Kikötöm** (gondozás). |
 | Másik ló | Gondozásnál a **Lovak** fülön: **Kihozom**, vagy **＋ Új ló** (legfeljebb 6). |
-| Ház | Gyalog sétálj be az ajtón (vagy **Bemegyek**). Bent a bútorok mellett: **Leülök**, **Lefekszem**, **Fürdés**, **Hűtő**. |
+| Ház | Gyalog sétálj be az ajtón, bent ugyanúgy jársz, mint kint. A bútorok mellett: **Leülök**, **Lefekszem**, **Fürdés**, **Hűtő**. |
 | Napszak, évszak | Menü (☰): a 🌗 és az évszak gomb váltogat. A menüből haza is lehet ugrani a házhoz. |
 
 ## Díjugratás és terepugratás

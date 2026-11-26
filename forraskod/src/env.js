@@ -199,8 +199,10 @@ export class Env {
     const lit = smoothstep(0.25, 0.75, N + tw * 0.4);
     this.props.lampMat.emissiveIntensity = lit * 3.2; this.props.glassMat.emissiveIntensity = lit * 0.9;
     this.house.lampMat.emissiveIntensity = 0.15 + lit * 2.6; this.house.glassMat.emissiveIntensity = lit * 1.3;
+    this.house.ceilMat.emissiveIntensity = 0.12 + D * 0.75 + lit * 0.25;
+    this.house.glassInMat.emissiveIntensity = D * 0.95; this.house.glassInMat.emissive.set('#d4e9ff').lerp(this.tmpC.set('#ffc39a'), tw);
     this.yardLight.intensity = lit * 14;
-    this.house.light.intensity = inside ? 2 + lit * 16 : lit * 6;
+    this.house.light.intensity = inside ? 4 + lit * 16 : lit * 6;
     // madarak csak nappal, pillangók nyáron/tavasszal
     if (this.fauna.birds) this.fauna.birds.visible = D > 0.35;
     if (this.fauna.bf) this.fauna.bf.visible = D > 0.35 && (this.season === 'nyar' || this.season === 'tavasz');

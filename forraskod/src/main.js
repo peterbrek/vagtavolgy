@@ -233,11 +233,11 @@ function placeHorse(x, z, yaw) { R.x = x; R.z = z; R.yaw = yaw; R.v = 0; R.lift 
 function setupInput() {
   const zone = $('joyzone'), base = $('joybase'), knob = $('joyknob');
   let joyId = null, cx = 0, cy = 0; const RAD = 58;
-  const rest = () => { base.style.left = `calc(96px + env(safe-area-inset-left,0px))`; base.style.top = `calc(100% - 112px - env(safe-area-inset-bottom,0px))`; knob.style.transform = ''; };
+  const rest = () => { base.style.left = `calc(100% - 96px - env(safe-area-inset-right,0px))`; base.style.top = `calc(100% - 112px - env(safe-area-inset-bottom,0px))`; knob.style.transform = ''; };
   rest();
   zone.addEventListener('pointerdown', (e) => {
     if (joyId !== null) return; joyId = e.pointerId; zone.setPointerCapture(e.pointerId);
-    const r = zone.getBoundingClientRect(); cx = clamp(e.clientX, r.left + 70, r.right - 20); cy = clamp(e.clientY, r.top + 20, r.bottom - 70);
+    const r = zone.getBoundingClientRect(); cx = clamp(e.clientX, r.left + 20, r.right - 70); cy = clamp(e.clientY, r.top + 20, r.bottom - 70);
     base.style.left = (cx - r.left) + 'px'; base.style.top = (cy - r.top) + 'px'; zone.classList.remove('idle'); move(e); e.preventDefault();
     sound.init();
   });
@@ -276,7 +276,7 @@ function setupInput() {
       const arr = [...ptrs.values()]; const d = Math.hypot(arr[0].x - arr[1].x, arr[0].y - arr[1].y);
       if (p.pd) cam.zoom = clamp((cam.zoom || 1) * (p.pd / d), 0.6, 1.6); p.pd = d; return;
     }
-    cam.yaw -= dx * 0.0065; cam.pitch = clamp(cam.pitch + dy * 0.004, -0.05, R.mode === 'house' ? 1.4 : 1.1); cam.user = 0;
+    cam.yaw -= dx * 0.0065; cam.pitch = clamp(cam.pitch + dy * 0.004, -0.05, 1.1); cam.user = 0;
   });
   const end = (e) => {
     const p = ptrs.get(e.pointerId); if (!p) return; ptrs.delete(e.pointerId);
@@ -308,7 +308,7 @@ function readKeys() {
 }
 
 // ---------- lovaglás ----------
-const groundY = (x, z) => world.heightAt(x, z) + (world.inArena(x, z) ? 0.04 : world.inYard(x, z) ? 0.035 : 0);
+const groundY = (x, z) => (house && house.onFloor(x, z)) ? house.floorY() : world.heightAt(x, z) + (world.inArena(x, z) ? 0.04 : world.inYard(x, z) ? 0.035 : 0);
 function gaitFor(v, prev) {
   const order = ['stand', 'walk', 'trot', 'canter', 'gallop'], th = [0.12, 2.9, 5.9, 10.2];
   let i = 0; while (i < 4 && v >= th[i]) i++;
@@ -530,7 +530,8 @@ function rideUpdate(dt) {
   // ütközés két körrel (mar, far)
   for (const [off, r] of [[0.78, 0.42], [-0.62, 0.42]]) {
     const p = { x: nx + fx * off, z: nz + fz * off }, ox = p.x, oz = p.z;
-    if (world.resolve(p, r, R.lift)) {
+    const hw = world.resolve(p, r, R.lift), hh = R.lift < 0.3 && pushFromHorses(p, r, S.cur);
+    if (hw || hh) {
       const px = p.x - ox, pz = p.z - oz, pl = Math.hypot(px, pz) || 1;
       nx += px; nz += pz;
       // szemből ütközve megáll, súrolva csak lassul
@@ -591,16 +592,11 @@ function footUpdate(dt) {
   R.v = damp(R.v, vt, vt > R.v ? 7 : 12, dt);
   const fx = Math.sin(R.yaw), fz = Math.cos(R.yaw);
   let nx = R.x + fx * R.v * dt, nz = R.z + fz * R.v * dt;
-  if (R.mode === 'house') {
-    const p = { x: nx, z: nz }; house.resolve(p, 0.26); nx = p.x; nz = p.z;
-    if (house.atDoorInside(nx, nz) && fz > 0.3 && R.v > 0.3) { exitHouse(); return; }
-  } else {
-    const hC = world.heightAt(R.x, R.z), hN = world.heightAt(nx, nz), steep = (hN - hC) / Math.max(R.v * dt, 1e-3);
-    if (WATER - hN > 0.45 || Math.abs(nx) > HALF - 18 || Math.abs(nz) > HALF - 18 || steep > 1.4) { nx = R.x; nz = R.z; if (WATER - hN > 0.45) msgOnce('deep', 'Ott már túl mély a víz!'); }
-    const p = { x: nx, z: nz }; world.resolve(p, 0.3, 0); nx = p.x; nz = p.z;
-    if (house.atDoorOutside(nx, nz) && fz < -0.4 && R.v > 0.4) { R.x = nx; R.z = nz; enterHouse(); return; }
-  }
+  const hC = world.heightAt(R.x, R.z), hN = world.heightAt(nx, nz), steep = (hN - hC) / Math.max(R.v * dt, 1e-3);
+  if (WATER - hN > 0.45 || Math.abs(nx) > HALF - 18 || Math.abs(nz) > HALF - 18 || steep > 1.4) { nx = R.x; nz = R.z; if (WATER - hN > 0.45) msgOnce('deep', 'Ott már túl mély a víz!'); }
+  const p = { x: nx, z: nz }; world.resolve(p, 0.27, 0, 'foot'); pushFromHorses(p, 0.3, -1); nx = p.x; nz = p.z;
   R.px = R.x; R.pz = R.z; R.x = nx; R.z = nz;
+  setIndoors(house.contains(R.x, R.z));
   if (R.mode === 'foot') pickups(dt);
   // lépések hangja
   const ph = rider.wph || 0, step = Math.floor(ph * 2);
@@ -658,6 +654,30 @@ function restReins(e, led) {
     const pts = []; for (let q = 0; q <= 10; q++) { const t = q / 10, p = a.clone().lerp(b, t); p.y -= Math.sin(Math.PI * t) * sag; pts.push(p); }
     e.reins[k].update(pts);
   }
+}
+// lovak teste két körrel: a gyalogos és a lovagolt ló nem megy át rajtuk
+const bodyC = [];
+function horseBodies(skip) {
+  bodyC.length = 0;
+  const add = (x, z, yaw, sc = 1) => { const fx = Math.sin(yaw), fz = Math.cos(yaw); bodyC.push({ ax: x - fx * 0.7 * sc, az: z - fz * 0.7 * sc, bx: x + fx * 0.85 * sc, bz: z + fz * 0.85 * sc, x, z, r: 0.42 * sc }); };
+  if (S) S.horses.forEach((d, i) => {
+    if (i === skip || d.loc === 'stall') return;
+    if (i === S.cur && (R.mode === 'ride' || R.mode === 'care' || R.mode === 'title')) return;
+    if (d.loc === 'tie') add(TIE.x, TIE.z, Math.PI / 2); else if (d.loc === 'out') add(d.x, d.z, d.yaw);
+  });
+  for (const w of fauna.wild) if (w.h.root.visible) add(w.x, w.z, w.h.root.rotation.y, w.scale);
+  return bodyC;
+}
+function pushFromHorses(p, r, skip) {
+  let hit = false;
+  for (const c of horseBodies(skip)) {
+    if (Math.abs(p.x - c.x) > 3 || Math.abs(p.z - c.z) > 3) continue;
+    // legközelebbi pont a ló testének szakaszán
+    const sx = c.bx - c.ax, sz = c.bz - c.az, t = clamp(((p.x - c.ax) * sx + (p.z - c.az) * sz) / (sx * sx + sz * sz), 0, 1);
+    const qx = c.ax + sx * t, qz = c.az + sz * t, dx = p.x - qx, dz = p.z - qz, d = Math.hypot(dx, dz), m = r + c.r;
+    if (d < m && d > 1e-4) { p.x = qx + dx / d * m; p.z = qz + dz / d * m; hit = true; }
+  }
+  return hit;
 }
 function nearestOwn(x, z, maxD = 2.8) {
   let best = -1, bd = maxD;
@@ -755,10 +775,10 @@ function mount() {
   if (!S.tut.ride) {
     S.tut.ride = true;
     setTimeout(() => modal(`<h2>Irányítás</h2><ul>
-      <li><b>Bal oldal:</b> húzd az ujjad arra, amerre menni szeretnél. Kicsit = <b>lépés</b>, félig = <b>ügetés</b>, teljesen = <b>vágta</b>.</li>
+      <li><b>Jobb oldal:</b> húzd az ujjad arra, amerre menni szeretnél. Kicsit = <b>lépés</b>, félig = <b>ügetés</b>, teljesen = <b>vágta</b>.</li>
       <li><b>Galopp gomb:</b> tartsd nyomva a leggyorsabb vágtához (fárasztó).</li>
       <li><b>Ugrás gomb:</b> nyomd meg az akadály előtt, a ló a megfelelő helyen elrugaszkodik.</li>
-      <li><b>Jobb oldal:</b> húzással körbenézhetsz.</li>
+      <li><b>Bal oldal és a kép többi része:</b> húzással körbenézhetsz. A <b>Galopp</b> és az <b>Ugrás</b> gomb bal oldalt van.</li>
       <li><b>Leszállás:</b> ha megállsz, alul megjelenik a <b>Leszállok</b> gomb. A ló ott marad és legel, bármikor visszaülhetsz.</li>
       <li>Gyűjtsd össze az <b>aranypatkókat</b>, és próbáld ki a <b>díjugrató pályát</b>: lovagolj át a zöld START kapun!</li></ul>
       <button class="big" data-close>Indulás!</button>`), 300);
@@ -839,23 +859,28 @@ function addHorse(name, coat, blaze = true, socks = false) {
 }
 
 // ---------- ház ----------
+function setIndoors(on) {
+  if (on === (R.mode === 'house')) return;
+  R.mode = on ? 'house' : 'foot'; house.setInside(on); rider.setHelmet(!on);
+  if (!on) { standUp(true); house.setTV(false); }
+  if (on) stopLead();
+}
 function enterHouse() {
-  stopLead();
-  R.mode = 'house'; R.pose = null; house.setInside(true); rider.setHelmet(false);
+  stopLead(); R.pose = null;
   const p = house.toWorld(house.doorIn.x, house.doorIn.z); R.x = p.x; R.z = p.z; R.yaw = Math.PI; R.v = 0;
-  cam.yaw = Math.PI; cam.pitch = 0.95; cam.user = 9; cam.target.set(R.x, 1.2, R.z);
-  fadeFlash(); sound.tone && sound.tone({ f: 520, dur: 0.12, vol: 0.06, type: 'triangle' });
+  if (R.mode !== 'foot' && R.mode !== 'house') goFoot(p.x, p.z, Math.PI);
+  setIndoors(true); cam.yaw = Math.PI; cam.pitch = 0.2; cam.user = 9; cam.target.set(R.x, house.floorY() + 1.45, R.z);
 }
 function exitHouse() {
-  standUp(true); house.setInside(false); house.setTV(false); rider.setHelmet(true);
-  const p = house.toWorld(house.doorOut.x, house.doorOut.z); R.mode = 'foot'; R.x = p.x; R.z = p.z; R.yaw = 0; R.v = 0;
-  cam.yaw = 0; cam.pitch = 0.28; cam.user = 9; fadeFlash();
+  const p = house.toWorld(house.doorOut.x, house.doorOut.z); R.x = p.x; R.z = p.z; R.yaw = 0; R.v = 0;
+  setIndoors(false); cam.yaw = 0; cam.pitch = 0.28; cam.user = 9;
 }
 function leaveHouse() { if (R.mode === 'house' || house.inside) { standUp(true); house.setInside(false); house.setTV(false); rider.setHelmet(true); } }
 function sitOn(key) {
   const sp = house.spots[key]; if (!sp) return;
   const w = house.toWorld(sp.x, sp.z);
   R.pose = { kind: sp.kind, key, x: w.x, z: w.z, yaw: sp.yaw, y: sp.y || 0, t: 0 }; R.v = 0;
+  cam.yaw = sp.yaw + (sp.kind === 'lie' ? Math.PI * 0.6 : Math.PI); cam.pitch = sp.kind === 'lie' ? 0.75 : 0.3; cam.user = 0;
   if (key === 'sofa') house.setTV(true);
   if (key === 'fridge') { R.pose = null; fridge(); }
   if (key === 'tub') sound.splash && sound.splash();
@@ -1091,16 +1116,16 @@ function openMenu() {
 function todKey() { if (S.todAuto) return 'auto'; let best = TOD_PRESETS[0], bd = 99; for (const t of TOD_PRESETS) if (!t.auto) { const dd = Math.abs(((S.tod - t.h + 36) % 24) - 12); if (dd < bd) { bd = dd; best = t; } } return best.k; }
 function helpModal() {
   modal(`<h2>Súgó</h2><ul>
-    <li><b>Mozgás:</b> bal oldalon húzd az ujjad. Kicsit = lépés, félig = ügetés, teljesen = vágta. A <b>Galopp</b> gombot tartsd nyomva a leggyorsabb tempóhoz.</li>
+    <li><b>Mozgás:</b> jobb oldalon húzd az ujjad. Kicsit = lépés, félig = ügetés, teljesen = vágta. A <b>Galopp</b> gombot tartsd nyomva a leggyorsabb tempóhoz.</li>
     <li><b>Ugrás:</b> ügetésben vagy vágtában, az akadály előtt nyomd meg. Ha korán nyomod, a ló kivárja a jó elugrási pontot. Ha túl későn, leverheti a rudat.</li>
-    <li><b>Kamera:</b> jobb oldalon húzással körbenézel.</li>
+    <li><b>Kamera:</b> a kép többi részén húzással körbenézel. A Galopp és az Ugrás gomb bal oldalt van.</li>
     <li><b>Energia:</b> a galopp fáraszt. Lépésben vagy állva visszatölt. Jóllakott, itatott ló tovább bírja.</li>
     <li><b>Gondozás:</b> az istállónál etesd, itasd, csutakold. Útközben megállva legel, a tóba besétálva ihat.</li>
     <li><b>Díjugratás:</b> az aréna zöld START kapuján át indul az idő. Ugord át sorban az 1–8. akadályt, majd menj át a piros CÉL kapun. Leverés vagy megtorpanás 4 hibapont.</li>
     <li><b>Aranypatkók:</b> 40 darab van elrejtve a völgyben. A térképen sárga pöttyök jelzik.</li>
     <li><b>Több ló:</b> az istállóban 6 boksz van. A gondozásnál a <b>Lovak</b> fülön új lovat hozhatsz, vagy kihozhatod a többit.</li>
     <li><b>Le- és felszállás:</b> megállva a <b>Leszállok</b> gombbal szállhatsz le, a ló ott marad és legel. Mellette állva felszállhatsz, vezetheted, az istállónál beállíthatod a boxába.</li>
-    <li><b>Ház:</b> gyalog az istálló melletti ház ajtajához sétálva bemehetsz. Leülhetsz a kanapéra, lefekhetsz az ágyba, és reggelig alhatsz.</li>
+    <li><b>Ház:</b> gyalog besétálhatsz az istálló melletti ház ajtaján. Leülhetsz a kanapéra, megfürödhetsz, lefekhetsz az ágyba, és reggelig alhatsz.</li>
     <li><b>Napszak, évszak:</b> a menüben váltható.</li></ul>
     <button class="big" data-close>Értem</button>`);
 }
@@ -1240,7 +1265,6 @@ function updateHud() {
     if (R.lead >= 0 && Math.hypot(R.x - TIE.x, R.z - TIE.z) < 6) html += B('tie', '🪢 Kikötöm');
     if (R.lead >= 0 && nearStable) html += B('box', '📥 Boxba', R.lead);
     if (R.lead < 0 && i < 0 && nearStable) html += B('stable', '🏠 Istálló');
-    if (house.nearDoorOutside(R.x, R.z)) html += B('enter', '🚪 Bemegyek');
     const nw = fauna.nearestWild(R.x, R.z);
     if (nw && nw.d < 4 && R.v < 1.2 && S.inv.alma > 0) html += B('feedwild', `🍎 Almát adok: ${esc(nw.w.name)}`);
   } else if (inHouse) {
@@ -1249,7 +1273,6 @@ function updateHud() {
       else html += B('stand', '⬆️ Felállok');
     } else {
       const sp = house.nearSpot(R.x, R.z); if (sp) html += B('spot', sp.label, sp.key);
-      const l = house.toLocal(R.x, R.z); if (l.z > 3.2 && l.x > -1.9 && l.x < 0.2) html += B('exit', '🚪 Kimegyek');
     }
   }
   if (ctxEl.dataset.h !== html) { ctxEl.dataset.h = html; ctxEl.innerHTML = html; ctxEl.querySelectorAll('button').forEach((b) => b.onclick = () => ctxAction(b.dataset.c, b.dataset.a)); }
@@ -1438,11 +1461,11 @@ function updateCamera(dt) {
     if (cam.user > 1.3 && R.v > 0.5) { cam.yaw = dampAngle(cam.yaw, R.yaw, 1.6, dt); cam.pitch = damp(cam.pitch, 0.26, 1.2, dt); }
     cam.target.x = damp(cam.target.x, tgt.x, 12, dt); cam.target.z = damp(cam.target.z, tgt.z, 12, dt); cam.target.y = damp(cam.target.y, tgt.y, 7, dt);
   } else if (R.mode === 'house') {
-    const P = R.pose || R;
-    tgt = tmpV3.set(P.x, house.floorY() + 0.85, P.z);
-    dist = 6.4 * (portrait ? 1.4 : 1) * (cam.zoom || 1);
-    if (cam.user > 2.5) cam.pitch = damp(cam.pitch, 0.95, 1.5, dt);
-    cam.target.lerp(tgt, 1 - Math.exp(-dt * 8));
+    const P = R.pose, fy = house.floorY();
+    tgt = P ? tmpV3.set(P.x, fy + P.y + (P.kind === 'lie' ? 0.35 : 0.55), P.z) : tmpV3.set(R.x, fy + 1.45, R.z);
+    dist = (P ? 2.3 : 2.6) * (portrait ? 1.15 : 1) * (cam.zoom || 1);
+    if (!P && cam.user > 1.3 && R.v > 0.4) { cam.yaw = dampAngle(cam.yaw, R.yaw, 2.2, dt); cam.pitch = damp(cam.pitch, 0.2, 1.5, dt); }
+    cam.target.x = damp(cam.target.x, tgt.x, 12, dt); cam.target.z = damp(cam.target.z, tgt.z, 12, dt); cam.target.y = damp(cam.target.y, tgt.y, 8, dt);
   } else {
     if (R.mode === 'title') { cam.yaw += dt * 0.08; tgt = tmpV3.set(R.x, groundY(R.x, R.z) + 1.05, R.z); }
     else tgt = tmpV3.set(TIE.x + 0.25, 1.15, TIE.z);
@@ -1457,11 +1480,13 @@ function updateCamera(dt) {
   if (R.mode === 'ride' || R.mode === 'foot') {
     for (let k = 0; k < 6 && treeNear(camera.position.x, camera.position.z, 2.6); k++) camera.position.lerp(cam.target, 0.18);
   }
-  // kint a ház/istálló falán se menjen át
-  if (R.mode === 'foot' || R.mode === 'ride') {
-    const p = { x: camera.position.x, z: camera.position.z };
-    if (camera.position.y < 4.6 && world.resolve(p, 0.35, 0)) { camera.position.x = p.x; camera.position.z = p.z; }
+  // a kamera ne menjen át falon (ház, istálló), bent ne menjen a plafon fölé
+  if (R.mode === 'foot' || R.mode === 'ride' || R.mode === 'house') {
+    const t = world.segmentHit(cam.target.x, cam.target.z, camera.position.x, camera.position.z, camera.position.y, 0.22);
+    if (t < 1) { const k = Math.max(0.04, t - 0.03); camera.position.x = lerp(cam.target.x, camera.position.x, k); camera.position.z = lerp(cam.target.z, camera.position.z, k); camera.position.y = lerp(cam.target.y, camera.position.y, Math.max(k, 0.5)); }
+    if (R.mode === 'house') camera.position.y = Math.min(camera.position.y, house.ceilingY() - 0.22);
   }
+  { const fov = R.mode === 'house' ? (portrait ? 80 : 70) : (portrait ? 62 : 55); if (Math.abs(camera.fov - fov) > 0.05) { camera.fov = damp(camera.fov, fov, 6, dt); camera.updateProjectionMatrix(); } }
   const gyc = world.heightAt(camera.position.x, camera.position.z) + 0.5;
   if (camera.position.y < gyc) camera.position.y = gyc;
   if (cam.shake > 0) { cam.shake -= dt; camera.position.y += (Math.random() - 0.5) * cam.shake * 0.4; }

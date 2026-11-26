@@ -675,7 +675,21 @@ export class World {
     }
     return best;
   }
-  resolve(p, r, lift) {
+  // kamera-szakasz: az első fal/épület metszése (0..1), y magasságban
+  segmentHit(ax, az, bx, bz, y, pad = 0.2) {
+    let best = 1; const mx = Math.min(ax, bx), Mx = Math.max(ax, bx), mz = Math.min(az, bz), Mz = Math.max(az, bz);
+    for (const b of this.boxes) {
+      if (b.only === 'horse' || b.h + 0.05 < y) continue;
+      if (b.x + b.br + pad < mx || b.x - b.br - pad > Mx || b.z + b.br + pad < mz || b.z - b.br - pad > Mz) continue;
+      const tl = (px, pz) => { const dx = px - b.x, dz = pz - b.z; return [dx * b.c - dz * b.s, dx * b.s + dz * b.c]; };
+      const [a0, f0] = tl(ax, az), [a1, f1] = tl(bx, bz);
+      let t0 = 0, t1 = 1; const da = a1 - a0, df = f1 - f0, ha = b.hw + pad, hf = b.hd + pad;
+      const slab = (o, d, h) => { if (Math.abs(d) < 1e-9) return o >= -h && o <= h; let u0 = (-h - o) / d, u1 = (h - o) / d; if (u0 > u1) [u0, u1] = [u1, u0]; t0 = Math.max(t0, u0); t1 = Math.min(t1, u1); return t0 <= t1; };
+      if (slab(a0, da, ha) && slab(f0, df, hf) && t0 < best) best = t0;
+    }
+    return best;
+  }
+  resolve(p, r, lift, who = 'horse') {
     let hit = false;
     const i = Math.floor(p.x / 8), j = Math.floor(p.z / 8);
     const seen = this._seen || (this._seen = new Set()); seen.clear();
@@ -691,6 +705,7 @@ export class World {
     for (const b of this.boxes) {
       const dx = p.x - b.x, dz = p.z - b.z;
       if (Math.abs(dx) > b.br + r || Math.abs(dz) > b.br + r) continue;
+      if (b.only && b.only !== who) continue;
       if (lift > (b.data ? b.h - 0.3 : b.h)) continue;
       const la = dx * b.c - dz * b.s, lf = dx * b.s + dz * b.c;
       const ca = clamp(la, -b.hw, b.hw), cf = clamp(lf, -b.hd, b.hd);
