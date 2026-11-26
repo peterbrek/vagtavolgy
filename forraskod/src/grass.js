@@ -9,7 +9,7 @@ export class Grass {
     this.radius = quality === 'low' ? 34 : 52;
     this.cell = quality === 'low' ? 1.05 : 0.82;
     const maxN = Math.ceil(Math.PI * (this.radius / this.cell) ** 2 * 1.02);
-    this.uniforms = { uTime: { value: 0 }, uCenter: { value: new THREE.Vector2() }, uRadius: { value: this.radius }, uHorse: { value: new THREE.Vector3(0, 0, -999) } };
+    this.uniforms = { uTime: { value: 0 }, uCenter: { value: new THREE.Vector2() }, uRadius: { value: this.radius }, uHorse: { value: new THREE.Vector3(0, 0, -999) }, uSnow: { value: 0 }, uGrassTint: { value: new THREE.Color(1, 1, 1) } };
 
     // fűcsomó: 6 penge
     const r = mulberry32(3), blades = [];
@@ -65,11 +65,12 @@ export class Grass {
   patch(mat, windAmt) {
     mat.onBeforeCompile = (sh) => {
       Object.assign(sh.uniforms, this.uniforms);
-      sh.vertexShader = 'uniform float uTime; uniform vec2 uCenter; uniform float uRadius; uniform vec3 uHorse;\n' + sh.vertexShader
+      sh.vertexShader = 'uniform float uTime; uniform vec2 uCenter; uniform float uRadius; uniform vec3 uHorse; uniform float uSnow;\n' + sh.vertexShader
         .replace('#include <begin_vertex>', `#include <begin_vertex>
           vec3 ip = vec3(instanceMatrix[3][0], instanceMatrix[3][1], instanceMatrix[3][2]);
           float fd = distance(ip.xz, uCenter);
-          transformed *= 1.0 - smoothstep(uRadius*0.72, uRadius, fd);`)
+          transformed *= 1.0 - smoothstep(uRadius*0.72, uRadius, fd);
+          transformed.y *= 1.0 - uSnow * 0.72;`)
         .replace('#include <project_vertex>', `
           vec4 mvPosition = vec4(transformed, 1.0);
           mvPosition = instanceMatrix * mvPosition;
@@ -81,7 +82,8 @@ export class Grass {
           mvPosition.xz += normalize(away + 1e-4) * push * hy * 2.2; mvPosition.y -= push * hy * 0.8;
           mvPosition = modelViewMatrix * mvPosition;
           gl_Position = projectionMatrix * mvPosition;`);
-      sh.fragmentShader = sh.fragmentShader.replace('#include <normal_fragment_begin>', '#include <normal_fragment_begin>\n normal = normalize(vNormal);');
+      sh.fragmentShader = 'uniform float uSnow; uniform vec3 uGrassTint;\n' + sh.fragmentShader.replace('#include <normal_fragment_begin>', '#include <normal_fragment_begin>\n normal = normalize(vNormal);')
+        .replace('#include <color_fragment>', '#include <color_fragment>\n diffuseColor.rgb *= uGrassTint; diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.8,0.84,0.9), uSnow*0.6);');
     };
   }
 

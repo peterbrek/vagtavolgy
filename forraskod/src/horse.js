@@ -406,6 +406,9 @@ export class Horse {
     this.maneMat.color.set(c.mane).multiplyScalar(0.8); this.hairMat.color.set(c.mane);
   }
   setDetail(on) { if (this._det === on) return; this._det = on; for (const m of this.detail) m.visible = on; }
+  // boxban: a lábak és a farok nem látszanak, árnyékot sem vet (kevesebb rajzhívás)
+  setStall(on) { if (this._stall === on) return; this._stall = on; for (const l of this.legs) l.upper.visible = !on; if (this.tail[0]) this.tail[0].g.visible = !on; }
+  setShadow(on) { if (this._sh === on) return; this._sh = on; this.root.traverse((o) => { if (!o.isMesh) return; if (o.userData.cs === undefined) o.userData.cs = o.castShadow; o.castShadow = on ? o.userData.cs : false; }); }
   setDirt(d) { for (const k in this.mats) { const m = this.mats[k]; m.userData.u.uDirt.value = d; m.clearcoat = 0.02 + 0.24 * (1 - d); m.sheen = 0.15 + 0.4 * (1 - d); m.roughness = 0.5 + d * 0.25; } }
 
   setTack(t) {

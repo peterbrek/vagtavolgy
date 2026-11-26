@@ -127,6 +127,23 @@ label.l{display:block;text-align:left;font-weight:800;font-size:13px;color:#555;
 #bigmap{position:fixed;inset:0;z-index:35;background:rgba(15,25,35,.75);display:flex;align-items:center;justify-content:center;padding:calc(14px + var(--sat)) 14px calc(14px + var(--sab))}
 #bigc{max-width:100%;max-height:100%;border-radius:18px;box-shadow:0 10px 40px rgba(0,0,0,.5);background:#7a9}
 #rot{display:none}
+#fade{position:fixed;inset:0;background:#05070c;opacity:0;pointer-events:none;z-index:45}
+#careBtns{display:flex;gap:8px}#careBtns #btnMount{flex:2}
+#btnWalk{flex:1;font-weight:900;font-size:16px;color:#fff;padding:14px 8px;border-radius:18px;background:linear-gradient(#5e93d6,#2e5b8f);box-shadow:0 5px 0 #1d3d63,0 8px 18px rgba(0,0,0,.25)}
+#btnWalk:active{transform:translateY(3px);box-shadow:0 2px 0 #1d3d63}
+#hud.foot #energy,#hud.foot #btnJump{display:none}
+#hud.foot #rbtns{grid-template-columns:auto}
+#ctx{flex-wrap:wrap;justify-content:center;width:min(96vw,620px)}
+.tabs button{font-size:13px}
+.hlist{display:flex;flex-direction:column;gap:7px}
+.hrow{display:flex;align-items:center;gap:10px;background:#fff;border-radius:14px;padding:8px 10px;box-shadow:0 2px 6px rgba(0,0,0,.1)}
+.hrow.on{outline:3px solid var(--acc)}
+.hdot{width:30px;height:30px;border-radius:50%;border:2px solid rgba(0,0,0,.15);flex:none}
+.hinfo{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
+.hinfo b{font-size:15px}.hinfo small{color:#7a6a50;font-weight:700;font-size:11.5px}
+.hbars{display:grid;grid-template-columns:repeat(4,1fr);gap:4px}
+.hbars b{display:block;height:5px;border-radius:3px;background:rgba(0,0,0,.1);overflow:hidden}.hbars s{display:block;height:100%;background:#5bb85c}
+.here{font-weight:800;font-size:12px;color:var(--acc)}
 </style>
 </head>
 <body>
@@ -166,12 +183,13 @@ label.l{display:block;text-align:left;font-weight:800;font-size:13px;color:#555;
       <div class="cstat" id="cs_clean">✨ Tisztaság<b><s></s></b></div>
       <div class="cstat" id="cs_mood">❤️ Kedv<b><s></s></b></div>
     </div>
-    <div class="tabs"><button data-tab="care" class="on">Gondozás</button><button data-tab="tack">Felszerelés</button><button data-tab="look">Kinézet</button></div>
+    <div class="tabs"><button data-tab="care" class="on">Gondozás</button><button data-tab="tack">Nyereg</button><button data-tab="look">Kinézet</button><button data-tab="horses">Lovak</button></div>
     <div id="carePane"></div>
   </div>
-  <button id="btnMount">🐴 Nyeregbe!</button>
+  <div id="careBtns"><button id="btnMount">🐴 Nyeregbe!</button><button id="btnWalk">🚶 Gyalog</button></div>
 </div>
 <div id="careHint" class="hide"></div>
+<div id="fade"></div>
 <div id="brushCur" class="hide"></div>
 
 <div id="title" class="hide"><div id="titleBox" class="panel"></div></div>

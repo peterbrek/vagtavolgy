@@ -61,12 +61,17 @@ export class Rider {
     ball(0.011, M.skin, this.head, [0, 0.07, 0.085], [0.8, 1.1, 1], 8);
     ball(0.02, this.m.lip, this.head, [0, 0.046, 0.072], [1, 0.3, 0.45], 10);
     // sisak ellenzővel és szíjjal
-    { const hg = new THREE.SphereGeometry(0.106, 22, 12, 0, Math.PI * 2, 0, Math.PI * 0.55); hg.scale(1, 0.96, 1.08); const h = mesh(hg, M.helmet, this.head); h.position.set(0, 0.09, -0.006);
-      const rim = mesh(new THREE.TorusGeometry(0.104, 0.006, 6, 28), M.helmet, this.head); rim.rotation.x = Math.PI / 2; rim.scale.set(1, 1.08, 1); rim.position.set(0, 0.083, -0.006);
+    this.helmetParts = [];
+    { const hl = new THREE.Group(); this.head.add(hl); this.helmetG = hl;
+      const hg = new THREE.SphereGeometry(0.106, 22, 12, 0, Math.PI * 2, 0, Math.PI * 0.55); hg.scale(1, 0.96, 1.08); const h = mesh(hg, M.helmet, hl); h.position.set(0, 0.09, -0.006);
+      const rim = mesh(new THREE.TorusGeometry(0.104, 0.006, 6, 28), M.helmet, hl); rim.rotation.x = Math.PI / 2; rim.scale.set(1, 1.08, 1); rim.position.set(0, 0.083, -0.006);
       const pk = new THREE.CylinderGeometry(0.075, 0.075, 0.007, 18, 1, false, -Math.PI / 2, Math.PI); pk.scale(1, 1, 0.62);
-      const peak = mesh(pk, M.helmet, this.head); peak.position.set(0, 0.093, 0.072); peak.rotation.x = 0.28;
-      for (const sx of [-1, 1]) { const st = mesh(new THREE.BoxGeometry(0.007, 0.1, 0.012), M.dark, this.head, false); st.position.set(sx * 0.074, 0.04, 0.02); st.rotation.z = sx * 0.12; }
-      const chin = mesh(new THREE.BoxGeometry(0.1, 0.007, 0.014), M.dark, this.head, false); chin.position.set(0, -0.004, 0.035); }
+      const peak = mesh(pk, M.helmet, hl); peak.position.set(0, 0.093, 0.072); peak.rotation.x = 0.28;
+      for (const sx of [-1, 1]) { const st = mesh(new THREE.BoxGeometry(0.007, 0.1, 0.012), M.dark, hl, false); st.position.set(sx * 0.074, 0.04, 0.02); st.rotation.z = sx * 0.12; }
+      const chin = mesh(new THREE.BoxGeometry(0.1, 0.007, 0.014), M.dark, hl, false); chin.position.set(0, -0.004, 0.035); }
+    // haj a fej tetején (sisak nélkül látszik)
+    { const tg = new THREE.SphereGeometry(0.097, 20, 10, 0, Math.PI * 2, 0, Math.PI * 0.5); tg.scale(0.93, 1.0, 1.04); const t = mesh(tg, M.hair, this.head); t.position.set(0, 0.086, -0.01); t.rotation.x = -0.25; t.visible = false; this.hairTop = t;
+      const fr = new THREE.SphereGeometry(0.093, 16, 6, Math.PI * 0.15, Math.PI * 0.7, Math.PI * 0.3, Math.PI * 0.12); const f = mesh(fr, M.hair, this.head); f.position.set(0, 0.088, 0.0); f.rotation.y = Math.PI; f.visible = false; this.hairFringe = f; }
     // haj
     { const hh = new THREE.SphereGeometry(0.094, 16, 10, 0, Math.PI * 2, Math.PI * 0.4, Math.PI * 0.32); const k = mesh(hh, M.hair, this.head); k.position.set(0, 0.078, -0.014); }
     this.pony = new THREE.Group(); this.pony.position.set(0, 0.07, -0.098); this.head.add(this.pony);
@@ -116,6 +121,83 @@ export class Rider {
     this.feetBody = [new THREE.Vector3(), new THREE.Vector3()];
   }
 
+  attach(horse) {
+    this.horse = horse; horse.body.add(this.root); this.root.position.copy(SEAT); this.root.rotation.set(0, 0, 0); this.setHelmet(true);
+  }
+  detach(parent) { parent.add(this.root); this.root.position.set(0, 0, 0); this.root.rotation.set(0, 0, 0); }
+  setHelmet(on) { this.helmetG.visible = on; this.hairTop.visible = !on; this.hairFringe.visible = !on; }
+
+  // kétcsontos láb IK a gyökér koordinátáiban: H csípő, F boka, pole a térd iránya
+  legTo(L, H, F, pole, footPitch = 0) {
+    const L1 = 0.43, L2 = 0.41;
+    const dv = this._d.subVectors(F, H); let d = dv.length(); dv.normalize();
+    d = clamp(d, 0.2, (L1 + L2) * 0.995);
+    const a = (L1 * L1 - L2 * L2 + d * d) / (2 * d), h = Math.sqrt(Math.max(0, L1 * L1 - a * a));
+    const pl = this._p.copy(pole).normalize(); pl.addScaledVector(dv, -pl.dot(dv)).normalize();
+    const K = this._k.copy(H).addScaledVector(dv, a).addScaledVector(pl, h);
+    const Fe = this._fe.copy(H).addScaledVector(dv, d);
+    L.plane.position.copy(H); L.plane.rotation.set(0, 0, 0); L.th.rotation.set(0, 0, 0); L.kn.rotation.set(0, 0, 0);
+    const qT = L.th.quaternion.setFromUnitVectors(DOWN, this._u.subVectors(K, H).normalize());
+    const qS = this._q.setFromUnitVectors(DOWN, this._u.subVectors(Fe, K).normalize());
+    L.kn.quaternion.copy(qT).invert().multiply(qS);
+    L.ft.quaternion.copy(qS).invert().multiply(this._q2.setFromEuler(this._e.set(footPitch, 0, 0)));
+  }
+
+  // gyalog: séta, futás, ülés, fekvés, fürdés
+  updateFoot(dt, st) {
+    this.time += dt;
+    const TAU = Math.PI * 2, v = st.v || 0, pose = st.pose || 'stand';
+    this.wph = this.wph || 0;
+    const run = v > 2.6, duty = run ? 0.38 : 0.6;
+    const S = run ? clamp(0.55 + v * 0.14, 0.8, 1.25) : clamp(0.22 + v * 0.34, 0.3, 0.78);
+    const amp = pose === 'stand' ? smoothstep(0.04, 0.45, v) : 0;
+    if (amp > 0) this.wph = (this.wph + dt * v * duty / S) % 1;
+    const lift = run ? 0.2 : 0.09, hipY = -0.03;
+    const feetZ = [0, 0];
+    this.pelvis.rotation.set(0, 0, 0); this.torso.rotation.set(0, 0, 0); this.head.rotation.set(0, 0, 0);
+    let bob = 0;
+    if (pose === 'stand') {
+      bob = (run ? 0.045 : 0.02) * Math.cos(2 * TAU * this.wph) * amp - (run ? 0.05 : 0.0) * amp;
+      this.pelvis.position.set(0, bob, 0);
+      this.pelvis.rotation.y = Math.sin(TAU * this.wph) * 0.08 * amp;
+      this.torso.rotation.x = (run ? 0.2 : 0.05) * amp + 0.02;
+      this.torso.rotation.y = -Math.sin(TAU * this.wph) * 0.14 * amp;
+      this.head.rotation.x = -this.torso.rotation.x * 0.7;
+      this.legs.forEach((L, i) => {
+        const p = (this.wph + i * 0.5) % 1; let z, y;
+        if (p < duty) { const t = p / duty; z = S / 2 - t * S; y = 0; }
+        else { const t = (p - duty) / (1 - duty); z = -S / 2 + (0.5 - 0.5 * Math.cos(Math.PI * t)) * S; y = Math.sin(Math.PI * t) * lift; }
+        feetZ[i] = z * amp;
+        const F = this._f.set(L.s * 0.11, hipY - 0.835 + y * amp - bob, z * amp);
+        const H = this._h.set(L.s * 0.11, hipY, 0);
+        this.legTo(L, H, F, this._v.set(L.s * 0.08, 0, 1), (y > 0.02 ? -0.25 : 0) * amp);
+      });
+      this.arms.forEach((A, i) => {
+        const sw = amp * (run ? 0.9 : 0.42) * (feetZ[i] / Math.max(S / 2, 0.01));
+        A.plane.rotation.set(0, 0, A.s * 0.1);
+        A.up.rotation.set(sw, 0, 0); A.fo.rotation.set(-(run ? 1.4 : 0.3) - Math.max(0, -sw) * 0.4, 0, 0);
+      });
+      this.pony.rotation.x = 0.25 + Math.sin(this.time * 9) * 0.05 * amp + (run ? 0.25 : 0);
+    } else if (pose === 'sit' || pose === 'bath') {
+      const bath = pose === 'bath';
+      this.pelvis.position.set(0, 0, 0);
+      this.torso.rotation.x = bath ? -0.42 : -0.08; this.head.rotation.x = bath ? 0.3 : 0.05;
+      this.legs.forEach((L) => {
+        const H = this._h.set(L.s * 0.11, hipY, 0);
+        const F = bath ? this._f.set(L.s * 0.13, hipY - 0.16, 0.8) : this._f.set(L.s * 0.14, hipY - 0.42, 0.47);
+        this.legTo(L, H, F, this._v.set(L.s * 0.1, 1, 0.3), bath ? -0.6 : 0);
+      });
+      this.arms.forEach((A) => { A.plane.rotation.set(0, 0, A.s * (bath ? 0.5 : 0.12)); A.up.rotation.set(bath ? 0.2 : -0.45, 0, 0); A.fo.rotation.set(bath ? -0.4 : -0.85, 0, 0); });
+      this.pony.rotation.x = bath ? 1.2 : 0.2;
+    } else if (pose === 'lie') {
+      this.pelvis.position.set(0, 0, 0); this.head.rotation.x = 0.12;
+      this.legs.forEach((L) => { const H = this._h.set(L.s * 0.11, hipY, 0); const F = this._f.set(L.s * 0.13, hipY - 0.82, 0.02); this.legTo(L, H, F, this._v.set(0, 0, 1), -1.1); });
+      this.arms.forEach((A) => { A.plane.rotation.set(0, 0, A.s * 0.16); A.up.rotation.set(0.05, 0, 0); A.fo.rotation.set(-0.15, 0, 0); });
+      this.pony.rotation.x = 1.5;
+    }
+    this.feetBody[0].set(0, 0, 0); this.feetBody[1].set(0, 0, 0);
+  }
+
   setLook({ jacket, helmet, hair }) {
     if (jacket) this.m.jacket.color.set(jacket);
     if (helmet) this.m.helmet.color.set(helmet);
@@ -137,6 +219,7 @@ export class Rider {
     this.rise = g === 'trot' ? lerp(this.rise, riseT, 1 - Math.exp(-dt * 25)) : damp(this.rise, riseT, 8, dt);
     riseZ = this.lean * 0.1;
     this.pelvis.position.set(0, this.rise, riseZ);
+    this.pelvis.rotation.set(0, 0, 0); this.torso.rotation.set(0, 0, 0);
     this.pelvis.rotation.x = g === 'canter' ? Math.sin(TAU * (ph - 0.35)) * 0.07 * amp : 0;
     this.pelvis.rotation.z = g === 'walk' ? Math.sin(TAU * ph) * 0.03 * amp : 0;
     this.torso.rotation.x = this.lean;

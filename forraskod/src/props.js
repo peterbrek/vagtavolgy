@@ -56,59 +56,66 @@ export function buildProps(world, scene) {
   const G = P.group;
   const rnd = mulberry32(404);
 
-  // ---------- istálló ----------
+  // ---------- istálló: 6 boksz, félig nyitott ajtókkal ----------
   {
-    const { x: sx, z: sz, w, d } = STABLE, front = sz + d / 2, wh = 3.7;
-    const wallM = lam('#efe4cf'), woodM = lam('#5e3c24'), darkM = lam('#2a2018', { side: THREE.BackSide });
+    const { x: sx, z: sz, w, d } = STABLE, front = sz + d / 2, back = sz - d / 2, wh = 3.2;
+    const wallM = lam('#efe4cf'), woodM = lam('#5e3c24'), innerM = lam('#9a7452'), doorM = lam('#7b3426'), trimM = lam('#f4efe6');
+    P.glassMat = new THREE.MeshStandardMaterial({ color: '#2c3a42', roughness: 0.3, emissive: '#ffb860', emissiveIntensity: 0 });
+    P.lampMat = new THREE.MeshStandardMaterial({ color: '#fff2c8', roughness: 0.4, emissive: '#ffcf7a', emissiveIntensity: 0 });
     const st = new THREE.Group(); G.add(st);
-    st.add(box(w, wh, 0.3, wallM, sx, wh / 2, sz - d / 2 + 0.15));
-    st.add(box(0.3, wh, d, wallM, sx - w / 2 + 0.15, wh / 2, sz));
-    st.add(box(0.3, wh, d, wallM, sx + w / 2 - 0.15, wh / 2, sz));
-    const fw = (w - 3.4) / 2;
-    st.add(box(fw, wh, 0.3, wallM, sx - 1.7 - fw / 2, wh / 2, front - 0.15));
-    st.add(box(fw, wh, 0.3, wallM, sx + 1.7 + fw / 2, wh / 2, front - 0.15));
-    st.add(box(3.4, wh - 3.0, 0.3, wallM, sx, 3.0 + (wh - 3.0) / 2, front - 0.15));
-    const inner = new THREE.Mesh(new THREE.BoxGeometry(w - 0.62, wh - 0.02, d - 0.62), darkM); inner.position.set(sx, wh / 2, sz); st.add(inner);
-    // belső boksz-sejtetés
-    for (const ox of [-3.2, 3.2]) st.add(box(0.12, 1.4, 3.5, lam('#6e4a2c'), sx + ox, 0.7, sz + 0.5));
-    // sötét lábazat
-    const baseM = lam('#8c8475');
-    st.add(box(w + 0.06, 0.55, 0.32, baseM, sx, 0.27, sz - d / 2 + 0.15));
-    st.add(box(0.32, 0.55, d + 0.06, baseM, sx - w / 2 + 0.15, 0.27, sz));
-    st.add(box(0.32, 0.55, d + 0.06, baseM, sx + w / 2 - 0.15, 0.27, sz));
-    st.add(box(fw + 0.03, 0.55, 0.32, baseM, sx - 1.7 - fw / 2, 0.27, front - 0.15));
-    st.add(box(fw + 0.03, 0.55, 0.32, baseM, sx + 1.7 + fw / 2, 0.27, front - 0.15));
-    // gerendák
+    st.add(box(w, wh, 0.3, wallM, sx, wh / 2, back + 0.15));
+    for (const s of [-1, 1]) st.add(box(0.3, wh, d, wallM, sx + s * (w / 2 - 0.15), wh / 2, sz));
+    // belső falburkolat
+    st.add(box(w - 0.62, wh - 0.3, 0.06, innerM, sx, (wh - 0.3) / 2, back + 0.33));
+    for (const s of [-1, 1]) st.add(box(0.06, wh - 0.3, d - 0.6, innerM, sx + s * (w / 2 - 0.33), (wh - 0.3) / 2, sz));
+    // szalmás padló
+    const strawTex = canvasTexture(128, 128, (ctx, W, H) => {
+      ctx.fillStyle = '#c9a656'; ctx.fillRect(0, 0, W, H);
+      for (let i = 0; i < 700; i++) { ctx.strokeStyle = `rgba(${rnd() < 0.5 ? '120,90,30' : '250,230,160'},0.5)`; ctx.lineWidth = 1 + rnd(); ctx.beginPath(); const x = rnd() * W, y = rnd() * H, a = rnd() * 6.28, l = 4 + rnd() * 10; ctx.moveTo(x, y); ctx.lineTo(x + Math.cos(a) * l, y + Math.sin(a) * l); ctx.stroke(); }
+    });
+    strawTex.wrapS = strawTex.wrapT = THREE.RepeatWrapping; strawTex.repeat.set(w / 3, d / 3);
+    const fl = new THREE.Mesh(new THREE.PlaneGeometry(w - 0.4, d - 0.4), lam('#ffffff', { map: strawTex })); fl.rotation.x = -Math.PI / 2; fl.position.set(sx, 0.03, sz); fl.receiveShadow = true; st.add(fl);
+    // homlokzat: pillérek, alsó ajtók, szemöldökgerenda
+    const N = 6, SW = (w - 0.3) / N, DW = 1.55, DH = 1.28, OH = 2.5, fz = front - 0.12;
+    const cxs = []; for (let i = 0; i < N; i++) cxs.push(sx - w / 2 + 0.15 + (i + 0.5) * SW);
+    const edges = [sx - w / 2]; for (let i = 0; i < N; i++) edges.push(cxs[i] - DW / 2, cxs[i] + DW / 2); edges.push(sx + w / 2);
+    for (let k = 0; k < edges.length; k += 2) { const x0 = edges[k], x1 = edges[k + 1]; st.add(box(x1 - x0, OH, 0.24, wallM, (x0 + x1) / 2, OH / 2, fz)); }
+    st.add(box(w, wh - OH, 0.24, wallM, sx, OH + (wh - OH) / 2, fz));
+    st.add(box(w + 0.04, 0.16, 0.3, woodM, sx, OH + 0.02, fz));
+    P.stalls = [];
+    cxs.forEach((cx, i) => {
+      const dg = new THREE.Group(); dg.position.set(cx, DH / 2, fz); st.add(dg);
+      dg.add(box(DW, DH, 0.08, doorM));
+      const diag = Math.atan2(DH - 0.2, DW - 0.2);
+      for (const r of [diag, -diag]) { const b = box(Math.hypot(DW - 0.2, DH - 0.2), 0.1, 0.04, trimM, 0, 0, 0.06); b.rotation.z = r; dg.add(b); }
+      for (const y of [DH / 2 - 0.05, -DH / 2 + 0.05]) dg.add(box(DW, 0.1, 0.04, trimM, 0, y, 0.06));
+      for (const x of [DW / 2 - 0.05, -DW / 2 + 0.05]) dg.add(box(0.1, DH, 0.04, trimM, x, 0, 0.06));
+      dg.add(box(DW + 0.08, 0.08, 0.3, woodM, 0, DH / 2 + 0.04, 0));
+      // nyílás kerete
+      st.add(box(0.1, OH - DH, 0.3, woodM, cx - DW / 2 + 0.05, DH + (OH - DH) / 2, fz)); st.add(box(0.1, OH - DH, 0.3, woodM, cx + DW / 2 - 0.05, DH + (OH - DH) / 2, fz));
+      // lámpás a pilléren
+      if (i < N - 1) { const lx = cx + SW / 2; st.add(box(0.16, 0.24, 0.16, P.lampMat, lx, 2.05, front + 0.06)); st.add(box(0.22, 0.05, 0.22, woodM, lx, 2.2, front + 0.06)); }
+      P.stalls.push({ x: cx, z: front - 1.12, yaw: 0, plateY: 0.98, plateZ: fz + 0.11 });
+    });
+    // boksz-válaszfalak: alul deszka, felül rács
+    const barM = lam('#3b3f45');
+    for (let k = 1; k < N; k++) {
+      const x = sx - w / 2 + 0.15 + k * SW;
+      st.add(box(0.1, 1.45, d - 0.65, innerM, x, 0.72, sz - 0.02));
+      st.add(box(0.12, 0.08, d - 0.65, woodM, x, 1.47, sz - 0.02));
+      st.add(box(0.12, 0.08, d - 0.65, woodM, x, 2.4, sz - 0.02));
+      for (let q = 0; q < 22; q++) st.add(box(0.035, 0.9, 0.035, barM, x, 1.95, back + 0.5 + q * (d - 1.0) / 21));
+    }
+    // sarokoszlopok
     for (const [cx, cz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) st.add(box(0.36, wh, 0.36, woodM, sx + cx * (w / 2 - 0.1), wh / 2, sz + cz * (d / 2 - 0.1)));
-    st.add(box(0.3, 3.0, 0.42, woodM, sx - 1.85, 1.5, front)); st.add(box(0.3, 3.0, 0.42, woodM, sx + 1.85, 1.5, front));
-    st.add(box(4.0, 0.34, 0.42, woodM, sx, 3.15, front));
-    // tolóajtók X-merevítéssel
-    const doorM = lam('#7b3426'), trimM = lam('#f4efe6');
+    // ablak az oldalfalakon
     for (const s of [-1, 1]) {
-      const dg = new THREE.Group(); dg.position.set(sx + s * 2.75, 1.45, front + 0.14); st.add(dg);
-      dg.add(box(1.75, 2.9, 0.1, doorM));
-      const diag = Math.atan2(2.6, 1.5);
-      for (const r of [diag, -diag]) { const b = box(3.0, 0.12, 0.04, trimM, 0, 0, 0.06); b.rotation.z = r; dg.add(b); }
-      dg.add(box(1.75, 0.12, 0.04, trimM, 0, 1.39, 0.06)); dg.add(box(1.75, 0.12, 0.04, trimM, 0, -1.39, 0.06));
-      dg.add(box(0.12, 2.9, 0.04, trimM, 0.82, 0, 0.06)); dg.add(box(0.12, 2.9, 0.04, trimM, -0.82, 0, 0.06));
-    }
-    // ablakok
-    const glassM = lam('#2c3a42'), frameM = lam('#f7f3ea');
-    for (const s of [-1, 1]) for (const oz of [-2.2, 2.2]) {
       const x = sx + s * (w / 2 + 0.01);
-      st.add(box(0.06, 0.9, 1.2, glassM, x, 2.1, sz + oz));
-      st.add(box(0.1, 1.06, 0.1, frameM, x, 2.1, sz + oz - 0.6)); st.add(box(0.1, 1.06, 0.1, frameM, x, 2.1, sz + oz + 0.6));
-      st.add(box(0.1, 0.1, 1.3, frameM, x, 2.6, sz + oz)); st.add(box(0.1, 0.1, 1.3, frameM, x, 1.6, sz + oz));
-      st.add(box(0.1, 0.06, 1.2, frameM, x, 2.1, sz + oz));
+      st.add(box(0.06, 0.9, 1.3, P.glassMat, x, 2.0, sz));
+      st.add(box(0.1, 1.06, 0.1, trimM, x, 2.0, sz - 0.65)); st.add(box(0.1, 1.06, 0.1, trimM, x, 2.0, sz + 0.65));
+      st.add(box(0.1, 0.1, 1.4, trimM, x, 2.5, sz)); st.add(box(0.1, 0.1, 1.4, trimM, x, 1.5, sz)); st.add(box(0.1, 0.06, 1.3, trimM, x, 2.0, sz));
     }
-    for (const s of [-1, 1]) {
-      const x = sx + s * 4.3;
-      st.add(box(1.0, 0.8, 0.06, glassM, x, 2.2, front + 0.01));
-      st.add(box(1.14, 0.1, 0.1, frameM, x, 2.62, front + 0.02)); st.add(box(1.14, 0.1, 0.1, frameM, x, 1.78, front + 0.02));
-      st.add(box(0.1, 0.9, 0.1, frameM, x - 0.55, 2.2, front + 0.02)); st.add(box(0.1, 0.9, 0.1, frameM, x + 0.55, 2.2, front + 0.02));
-      st.add(box(0.06, 0.8, 0.04, frameM, x, 2.2, front + 0.04));
-    }
-    // tető
+    // tető (nyereg) + előtető oszlopokkal
     const roofTex = canvasTexture(128, 128, (ctx, W, H) => {
       ctx.fillStyle = '#9a4532'; ctx.fillRect(0, 0, W, H);
       for (let r = 0; r < 8; r++) for (let c = 0; c < 8; c++) {
@@ -117,22 +124,31 @@ export function buildProps(world, scene) {
         ctx.fillStyle = 'rgba(0,0,0,0.25)'; ctx.fillRect(c * 16 + o - 8, r * 16 + 12, 15, 3);
       }
     });
-    roofTex.wrapS = roofTex.wrapT = THREE.RepeatWrapping; roofTex.repeat.set(5, 2.5);
-    const roofM = lam('#ffffff', { map: roofTex });
-    const half = d / 2 + 0.6, rise = 2.4, len = Math.hypot(half, rise), ang = Math.atan2(rise, half);
-    for (const s of [-1, 1]) {
-      const r = box(w + 1.0, 0.16, len, roofM, sx, wh - 0.28 + rise / 2, sz + s * half / 2);
-      r.rotation.x = s * ang; st.add(r);
-    }
-    st.add(box(w + 1.05, 0.2, 0.26, lam('#6f2f22'), sx, wh - 0.28 + rise + 0.05, sz));
+    roofTex.wrapS = roofTex.wrapT = THREE.RepeatWrapping; roofTex.repeat.set(7, 2.2);
+    const roofM = lam('#ffffff', { map: roofTex }); P.roofMat = roofM; P.roofTex = roofTex;
+    const half = d / 2 + 0.45, rise = 2.1, len = Math.hypot(half, rise), ang = Math.atan2(rise, half);
+    for (const s of [-1, 1]) { const r = box(w + 1.0, 0.16, len, roofM, sx, wh - 0.24 + rise / 2, sz + s * half / 2); r.rotation.x = s * ang; st.add(r); }
+    st.add(box(w + 1.05, 0.2, 0.26, lam('#6f2f22'), sx, wh - 0.24 + rise + 0.05, sz));
     const tri = new THREE.Shape(); tri.moveTo(-d / 2, 0); tri.lineTo(d / 2, 0); tri.lineTo(0, rise * (d / 2) / half + 0.05); tri.closePath();
-    for (const s of [-1, 1]) {
-      const tg = new THREE.ExtrudeGeometry(tri, { depth: 0.3, bevelEnabled: false }); tg.rotateY(Math.PI / 2);
-      const m = new THREE.Mesh(tg, wallM); m.position.set(sx + s * (w / 2 - 0.15) - 0.15, wh - 0.02, sz); m.castShadow = true; st.add(m);
-    }
+    for (const s of [-1, 1]) { const tg = new THREE.ExtrudeGeometry(tri, { depth: 0.3, bevelEnabled: false }); tg.rotateY(Math.PI / 2); const m = new THREE.Mesh(tg, wallM); m.position.set(sx + s * (w / 2 - 0.15) - 0.15, wh - 0.02, sz); m.castShadow = true; st.add(m); }
+    const cd = 1.7, ca = Math.atan2(0.45, cd);
+    { const c = box(w + 0.7, 0.12, Math.hypot(cd, 0.45) + 0.1, roofM, sx, 2.8, front + cd / 2 - 0.02); c.rotation.x = ca; st.add(c); }
+    for (let k = 0; k <= N; k++) { const x = k === 0 ? sx - w / 2 + 0.1 : k === N ? sx + w / 2 - 0.1 : edges[2 * k] - (edges[2 * k] - edges[2 * k - 1]) / 2; st.add(box(0.16, 2.5, 0.16, woodM, x, 1.25, front + cd - 0.15)); world.addCircle(x, front + cd - 0.15, 0.14, 99); }
+    st.add(box(w + 0.4, 0.14, 0.16, woodM, sx, 2.52, front + cd - 0.15));
     // tábla
-    const sign = new THREE.Mesh(new THREE.PlaneGeometry(2.6, 0.6), new THREE.MeshLambertMaterial({ map: textTex('ISTÁLLÓ', { bg: '#5e3c24', fg: '#f6e7c8', font: 'bold 46px ui-rounded, system-ui' }) }));
-    sign.position.set(sx, 3.55, front + 0.23); st.add(sign);
+    const sign = new THREE.Mesh(new THREE.PlaneGeometry(2.2, 0.5), new THREE.MeshLambertMaterial({ map: textTex('ISTÁLLÓ', { bg: '#5e3c24', fg: '#f6e7c8', font: 'bold 46px ui-rounded, system-ui' }) }));
+    sign.position.set(sx, 2.86, front + 0.01); st.add(sign);
+    // névtáblák a boksz-ajtók fölött
+    P.plates = P.stalls.map((S) => {
+      const c = document.createElement('canvas'); c.width = 256; c.height = 64; const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace;
+      const m = new THREE.Mesh(new THREE.PlaneGeometry(1.15, 0.29), new THREE.MeshLambertMaterial({ map: t })); m.position.set(S.x, S.plateY, S.plateZ); m.userData.dynamic = true; m.visible = false; st.add(m);
+      return { m, c, t, name: null };
+    });
+    P.setPlate = (i, name) => {
+      const pl = P.plates[i]; if (!pl || pl.name === name) return; pl.name = name; pl.m.visible = !!name; if (!name) return;
+      const x = pl.c.getContext('2d'); x.clearRect(0, 0, 256, 64); x.fillStyle = '#f6ecd6'; x.beginPath(); x.roundRect(3, 3, 250, 58, 12); x.fill(); x.strokeStyle = '#6b4a2e'; x.lineWidth = 5; x.stroke();
+      x.fillStyle = '#4a2e18'; x.font = 'bold 36px ui-rounded, system-ui'; x.textAlign = 'center'; x.textBaseline = 'middle'; x.fillText(name, 128, 34, 230); pl.t.needsUpdate = true;
+    };
     world.addBox(sx, sz, w / 2 + 0.1, d / 2 + 0.1, 0, 99);
     // udvar
     const gravel = canvasTexture(128, 128, (ctx, W, H) => {
@@ -140,7 +156,7 @@ export function buildProps(world, scene) {
       for (let i = 0; i < 1400; i++) { const v = 120 + rnd() * 110; ctx.fillStyle = `rgb(${v},${v * 0.93},${v * 0.82})`; ctx.fillRect(rnd() * W, rnd() * H, 1 + rnd() * 2.5, 1 + rnd() * 2); }
     });
     gravel.wrapS = gravel.wrapT = THREE.RepeatWrapping; gravel.repeat.set((YARD.x1 - YARD.x0) / 3, (YARD.z1 - YARD.z0) / 3);
-    const yard = new THREE.Mesh(new THREE.PlaneGeometry(YARD.x1 - YARD.x0, YARD.z1 - YARD.z0), lam('#ffffff', { map: gravel }));
+    const yard = new THREE.Mesh(new THREE.PlaneGeometry(YARD.x1 - YARD.x0, YARD.z1 - YARD.z0), P.yardMat = lam('#ffffff', { map: gravel }));
     yard.rotation.x = -Math.PI / 2; yard.position.set((YARD.x0 + YARD.x1) / 2, 0.035, (YARD.z0 + YARD.z1) / 2); yard.receiveShadow = true; G.add(yard);
     // kikötőoszlop (a ló feje mögött, hogy ne takarja a kamerát)
     const px = TIE.x + 2.1, pz = TIE.z - 1.1;
@@ -155,9 +171,7 @@ export function buildProps(world, scene) {
     world.addBox(tx, tz, 1.1, 0.4, 0, 99);
     P.trough = new THREE.Vector3(tx, 0, tz);
     // nyeregláda
-    st.add(box(1.1, 0.55, 0.6, lam('#2f558f'), sx + 4.4, 0.28, front + 0.7));
-    st.add(box(1.14, 0.08, 0.64, lam('#d9b25a'), sx + 4.4, 0.58, front + 0.7));
-    world.addBox(sx + 4.4, front + 0.7, 0.55, 0.3, 0, 99);
+    { const bx = sx - w / 2 - 1.3, bz = front + 1.0; st.add(box(0.6, 0.55, 1.1, lam('#2f558f'), bx, 0.28, bz)); st.add(box(0.64, 0.08, 1.14, lam('#d9b25a'), bx, 0.58, bz)); world.addBox(bx, bz, 0.3, 0.55, 0, 99); }
     // szalmabálák
     const hayTex = canvasTexture(64, 64, (ctx, W, H) => {
       ctx.fillStyle = '#d6b35c'; ctx.fillRect(0, 0, W, H);
@@ -189,7 +203,7 @@ export function buildProps(world, scene) {
       for (let y = 4; y < H; y += 9) { ctx.beginPath(); ctx.moveTo(0, y); for (let x = 0; x <= W; x += 16) ctx.lineTo(x, y + Math.sin(x * 0.05 + y) * 1.5); ctx.stroke(); }
     });
     sand.wrapS = sand.wrapT = THREE.RepeatWrapping; sand.repeat.set(ARENA.hw / 4, ARENA.hd / 4);
-    const pl = new THREE.Mesh(new THREE.PlaneGeometry(ARENA.hw * 2, ARENA.hd * 2), lam('#ffffff', { map: sand }));
+    const pl = new THREE.Mesh(new THREE.PlaneGeometry(ARENA.hw * 2, ARENA.hd * 2), P.arenaMat = lam('#ffffff', { map: sand }));
     pl.rotation.x = -Math.PI / 2; pl.position.set(ARENA.x, 0.04, ARENA.z); pl.receiveShadow = true; G.add(pl);
     // kerítés
     const postM = lam('#f4f4f0'), railM = lam('#ffffff');

@@ -6,11 +6,12 @@ import { makeTreeAssets } from './trees.js';
 export const SIZE = 1000, HALF = 500, SEG = 320, CELL = SIZE / SEG, G = SEG + 1;
 export const WATER = -0.9;
 export const HOME = { x: 25, z: 0 };
-export const STABLE = { x: -20, z: -37, w: 13, d: 9 };
+export const STABLE = { x: -20, z: -37, w: 21, d: 7 };
+export const HOUSE = { x: 3, z: -38.4, w: 12, d: 9.8 };
 export const TIE = { x: -20, z: -25 };
 export const ARENA = { x: 45, z: 15, hw: 42, hd: 24 };
 export const LAKE = { x: -175, z: 45, r: 48 };
-export const YARD = { x0: -36, x1: -4, z0: -33, z1: -14 };
+export const YARD = { x0: -36, x1: 11, z0: -33.4, z1: -14 };
 export const SUN_DIR = new THREE.Vector3(0.55, 0.64, 0.42).normalize();
 export const WORLD_VERSION = 2;
 
@@ -255,6 +256,8 @@ export class World {
       d *= 1 - smoothstep(22, 28, h) * (dist(x, z, REG.ruin) < 30 ? 0 : 1);
       d *= smoothstep(1.8, 3.0, this.creek.d[k]);
       if (this.canyon.d[k] < 10) d *= 0.35;
+      if (Math.abs(x - HOUSE.x) < HOUSE.w / 2 + 1.2 && Math.abs(z - HOUSE.z) < HOUSE.d / 2 + 2.4) d = 0;
+      if (Math.abs(x - STABLE.x) < STABLE.w / 2 + 1.5 && Math.abs(z - STABLE.z) < STABLE.d / 2 + 2.2) d = 0;
       if (this.inArena(x, z, 1.5) || this.inYard(x, z, 0.5) || this.inLavender(x, z, 0.5) || inRect(x, z, REG.garden, 0.5) || inRect(x, z, REG.farmYard)) d = 0;
       this.gd[k] = d;
     }
@@ -311,6 +314,7 @@ export class World {
       uTime: this.waterUniforms.uTime, uSun: { value: SUN_DIR }, uDeep: { value: new THREE.Color('#1d4f6e') },
       uShallow: { value: new THREE.Color(lake ? '#4f8f8c' : '#5fa3a0') }, uSky: { value: new THREE.Color('#b8d6ee') },
       uLake: { value: lake ? new THREE.Vector3(LAKE.x, LAKE.z, LAKE.r) : new THREE.Vector3(9999, 9999, 1) },
+      uIce: { value: 0 }, uLight: this.waterLight || (this.waterLight = { value: new THREE.Color(1, 1, 1) }),
     };
     const mat = new THREE.ShaderMaterial({
       transparent: true, fog: true, depthWrite: false,
@@ -320,7 +324,7 @@ export class World {
         void main(){ vec4 w = modelMatrix*vec4(position,1.0); vW = w.xyz; vec4 mvPosition = viewMatrix*w; gl_Position = projectionMatrix*mvPosition;
         #include <fog_vertex>
         }`,
-      fragmentShader: `uniform float uTime; uniform vec3 uSun, uDeep, uShallow, uSky, uLake; varying vec3 vW;
+      fragmentShader: `uniform float uTime, uIce; uniform vec3 uSun, uDeep, uShallow, uSky, uLake, uLight; varying vec3 vW;
         #include <fog_pars_fragment>
         float wh(vec2 p){ float t=uTime; return sin(p.x*0.6+t*1.3)*0.5+sin(p.y*0.7-t*1.1)*0.5+sin((p.x+p.y)*1.6+t*2.3)*0.25+sin((p.x-p.y)*2.9-t*2.9)*0.12+sin(p.x*5.1+p.y*3.3+t*4.0)*0.05; }
         void main(){
@@ -332,8 +336,12 @@ export class World {
           vec3 col = mix(uShallow, uDeep, deep);
           col = mix(col, uSky, 0.12 + fr*0.75);
           float sp = pow(max(dot(reflect(-uSun, n), v), 0.0), 180.0);
-          col += vec3(1.0,0.95,0.85)*sp*2.5;
+          col += vec3(1.0,0.95,0.85)*sp*2.5*(1.0-uIce);
           float a = clamp(0.62 + deep*0.3 + fr*0.3, 0.0, 0.97);
+          if (uIce > 0.0) { float cr = smoothstep(0.92, 1.0, abs(sin(p.x*0.9 + sin(p.y*0.37)*3.0))) * 0.25 + smoothstep(0.95, 1.0, abs(sin(p.y*1.3 + p.x*0.21))) * 0.2;
+            vec3 ice = mix(vec3(0.72,0.83,0.9), vec3(0.93,0.96,0.99), smoothstep(uLake.z*0.95, uLake.z*0.6, dc)*0.5 + fr*0.4) - cr*0.15;
+            col = mix(col, ice, uIce); a = mix(a, 0.96, uIce); }
+          col *= uLight;
           gl_FragColor = vec4(col, a);
           #include <colorspace_fragment>
           #include <fog_fragment>
@@ -345,7 +353,7 @@ export class World {
   buildWater() {
     this.waterUniforms = { uTime: { value: 0 } };
     const geo = new THREE.CircleGeometry(LAKE.r + 40, 64); geo.rotateX(-Math.PI / 2);
-    this.water = new THREE.Mesh(geo, this.waterMaterial(true));
+    this.water = new THREE.Mesh(geo, this.waterMaterial(true)); this.lakeMat = this.water.material;
     this.water.position.set(LAKE.x, WATER, LAKE.z); this.water.renderOrder = 2;
     this.group.add(this.water);
     // patak: szalag a meder fölött
@@ -380,13 +388,13 @@ export class World {
     const wg = new THREE.BufferGeometry(); wg.setAttribute('position', new THREE.Float32BufferAttribute(wpos, 3)); wg.setAttribute('uv', new THREE.Float32BufferAttribute(wuv, 2)); wg.setIndex(widx);
     const wm = new THREE.ShaderMaterial({
       transparent: true, depthWrite: false, side: THREE.DoubleSide, fog: true,
-      uniforms: THREE.UniformsUtils.merge([THREE.UniformsLib.fog, { uTime: { value: 0 } }]),
+      uniforms: { ...THREE.UniformsUtils.merge([THREE.UniformsLib.fog, { uTime: { value: 0 } }]), uLight: this.waterLight },
       vertexShader: `varying vec2 vUv;
         #include <fog_pars_vertex>
         void main(){ vUv = uv; vec4 mvPosition = modelViewMatrix*vec4(position,1.0); gl_Position = projectionMatrix*mvPosition;
         #include <fog_vertex>
         }`,
-      fragmentShader: `uniform float uTime; varying vec2 vUv;
+      fragmentShader: `uniform float uTime; uniform vec3 uLight; varying vec2 vUv;
         #include <fog_pars_fragment>
         float h(vec2 p){ return fract(sin(dot(p, vec2(12.9898,78.233)))*43758.5453); }
         float n2(vec2 p){ vec2 i=floor(p), f=fract(p); f=f*f*(3.0-2.0*f); return mix(mix(h(i),h(i+vec2(1,0)),f.x), mix(h(i+vec2(0,1)),h(i+vec2(1,1)),f.x), f.y); }
@@ -394,7 +402,7 @@ export class World {
           float s = n2(vec2(vUv.x*14.0, vUv.y*5.0 + uTime*3.2))*0.6 + n2(vec2(vUv.x*30.0, vUv.y*11.0 + uTime*5.0))*0.4;
           vec3 col = mix(vec3(0.62,0.8,0.9), vec3(1.0), smoothstep(0.35, 0.8, s));
           float a = (0.55 + 0.4*s) * smoothstep(0.0, 0.22, vUv.x) * smoothstep(1.0, 0.78, vUv.x);
-          gl_FragColor = vec4(col, a);
+          gl_FragColor = vec4(col * uLight, a);
           #include <colorspace_fragment>
           #include <fog_fragment>
         }`,
@@ -471,8 +479,8 @@ export class World {
     rockGeo.scale(1, 0.62, 1); rockGeo.computeVertexNormals();
 
     this.treeUniforms = { uTime: { value: 0 } };
-    const TA = makeTreeAssets(this.treeUniforms.uTime);
-    const rockMat = new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true });
+    const TA = makeTreeAssets(this.treeUniforms.uTime); this.treeAssets = TA;
+    const rockMat = new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true }); this.rockMat = rockMat;
     const TYPES = { con: [TA.con, TA.conMat], dec: [TA.dec, TA.decMat], aut: [TA.dec, TA.autMat], birch: [TA.birch, TA.birchMat], apple: [TA.apple, TA.appleMat], rock: [rockGeo, rockMat] };
 
     const CH = 125, NC = Math.ceil(SIZE / CH);
@@ -482,7 +490,7 @@ export class World {
     const rnd = mulberry32(99);
     const m = new THREE.Matrix4(), q = new THREE.Quaternion(), s = new THREE.Vector3(), p = new THREE.Vector3(), up = new THREE.Vector3(0, 1, 0);
     const blocked = (x, z, r) => this.path.at(x, z) < 3.2 + r || this.inArena(x, z, 6) || this.inYard(x, z, 6) ||
-      dist(x, z, STABLE) < 16 || dist(x, z, LAKE) < LAKE.r + 4 || Math.abs(x) > HALF - 4 || Math.abs(z) > HALF - 4 ||
+      dist(x, z, STABLE) < 18 || dist(x, z, HOUSE) < 16 || dist(x, z, LAKE) < LAKE.r + 4 || Math.abs(x) > HALF - 4 || Math.abs(z) > HALF - 4 ||
       this.creek.at(x, z) < 4 + r || dist(x, z, this.pool) < 9 || this.inLavender(x, z, 4) || inRect(x, z, REG.farmYard, 6) || inRect(x, z, REG.garden, 4) || inRect(x, z, REG.orchard, 3);
     this.treeSpots = [];
     // ritkás erdő: a törzsek között mindig marad hely egy lónak
@@ -609,7 +617,7 @@ export class World {
       idx.push(o, o + 1, o + 2, o, o + 2, o + 3);
     }
     const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2)); g.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3)); g.setIndex(idx);
-    const mat = new THREE.MeshLambertMaterial({ map: tex, alphaTest: 0.45, side: THREE.DoubleSide });
+    const mat = new THREE.MeshLambertMaterial({ map: tex, alphaTest: 0.45, side: THREE.DoubleSide }); this.lavenderMat = mat;
     mat.onBeforeCompile = (sh) => {
       sh.uniforms.uTime = this.treeUniforms.uTime;
       sh.vertexShader = 'uniform float uTime;\n' + sh.vertexShader.replace('#include <begin_vertex>', `#include <begin_vertex>
@@ -722,6 +730,7 @@ export class World {
     ctx.putImageData(img, 0, 0);
     const sx = (x) => (x + HALF) / SIZE * size;
     ctx.fillStyle = '#8a3b2a'; ctx.fillRect(sx(STABLE.x - STABLE.w / 2), sx(STABLE.z - STABLE.d / 2), STABLE.w / SIZE * size, STABLE.d / SIZE * size);
+    ctx.fillStyle = '#a5503a'; ctx.fillRect(sx(HOUSE.x - HOUSE.w / 2), sx(HOUSE.z - HOUSE.d / 2), HOUSE.w / SIZE * size, HOUSE.d / SIZE * size);
     ctx.fillStyle = '#9a3b2a'; ctx.fillRect(sx(REG.farm.x - 6), sx(REG.farm.z - 4), 12 / SIZE * size, 8 / SIZE * size);
     ctx.fillStyle = '#7d776c'; ctx.beginPath(); ctx.arc(sx(REG.ruin.x), sx(REG.ruin.z), 14 / SIZE * size, 0, 7); ctx.fill();
     return cv;
