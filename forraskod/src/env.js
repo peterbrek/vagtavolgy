@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { clamp, lerp, smoothstep } from './noise.js';
+import { ROOF_MATS } from './deco.js';
 
 // Napszakok (nap, hold, csillagok, esti fények) és évszakok (fű, lomb, hó, jég).
 export const SEASONS = {
@@ -36,7 +37,7 @@ export class Env {
     this.seasonize(world.terrain.material, 'ground');
     const TA = world.treeAssets;
     this.seasonize(TA.decMat, 'dec'); this.seasonize(TA.birchMat, 'birch'); this.seasonize(TA.appleMat, 'apple'); this.seasonize(TA.autMat, 'aut'); this.seasonize(TA.conMat, 'needle');
-    for (const m of [world.rockMat, props.roofMat, house.M.roof, props.yardMat, props.arenaMat]) if (m) this.seasonize(m, 'snow');
+    for (const m of [world.rockMat, props.roofMat, house.M.roof, props.yardMat, props.arenaMat, ...ROOF_MATS]) if (m) this.seasonize(m, 'snow');
     this.lavender = world.lavenderMat;
     // esti fények: udvari lámpa és a ház belső fénye
     const lp = this.lampPos = new THREE.Vector3(-6.2, 0, -30.6);

@@ -2,7 +2,8 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { canvasTexture } from './geom.js';
 import { mulberry32, clamp, smoothstep } from './noise.js';
-import { STABLE, TIE, ARENA, YARD, WATER, HOME, HALF, REG, LAKE, WATERFALL_T, inRect } from './world.js';
+import { roofMats, roofRows, Smoke, bunting, weatherVane, flowerPot, climbingRose, lam as dl, DECO_VC } from './deco.js';
+import { STABLE, HOUSE, TIE, ARENA, YARD, WATER, HOME, HALF, REG, LAKE, WATERFALL_T, inRect } from './world.js';
 
 const lam = (c, o = {}) => new THREE.MeshLambertMaterial({ color: c, ...o });
 const box = (w, h, d, mat, x = 0, y = 0, z = 0) => { const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat); m.position.set(x, y, z); m.castShadow = true; m.receiveShadow = true; return m; };
@@ -27,8 +28,23 @@ export function mergeStatic(group) {
   group.updateMatrixWorld(true);
   const inv = new THREE.Matrix4().copy(group.matrixWorld).invert();
   const byMat = new Map(); const victims = [];
+  // díszek (egyszínű, megosztott anyagok): csúcsszínnel egy hálóba
+  const deco = [];
+  group.traverse((o) => { if (o.isMesh && !o.isInstancedMesh && !o.userData.dynamic && !Array.isArray(o.material) && o.material.userData.deco) deco.push(o); });
+  if (deco.length > 1) {
+    const geos = deco.map((m) => {
+      let g = m.geometry.clone(); g.applyMatrix4(new THREE.Matrix4().multiplyMatrices(inv, m.matrixWorld)); if (g.index) g = g.toNonIndexed();
+      for (const k of Object.keys(g.attributes)) if (!['position', 'normal'].includes(k)) g.deleteAttribute(k);
+      if (!g.attributes.normal) g.computeVertexNormals();
+      const c = m.material.color, n = g.attributes.position.count, col = new Float32Array(n * 3);
+      for (let i = 0; i < n; i++) { col[i * 3] = c.r; col[i * 3 + 1] = c.g; col[i * 3 + 2] = c.b; }
+      g.setAttribute('color', new THREE.BufferAttribute(col, 3)); g.morphAttributes = {}; return g;
+    });
+    const merged = mergeGeometries(geos);
+    if (merged) { const mesh = new THREE.Mesh(merged, DECO_VC); mesh.castShadow = true; mesh.receiveShadow = true; group.add(mesh); for (const d of deco) d.parent.remove(d); }
+  }
   group.traverse((o) => {
-    if (!o.isMesh || o.isInstancedMesh || o.userData.dynamic || Array.isArray(o.material)) return;
+    if (!o.isMesh || o.isInstancedMesh || o.userData.dynamic || Array.isArray(o.material) || o.material === DECO_VC) return;
     let a = byMat.get(o.material); if (!a) { a = []; byMat.set(o.material, a); } a.push(o); victims.push(o);
   });
   for (const [mat, list] of byMat) {
@@ -60,7 +76,7 @@ export function buildProps(world, scene) {
   // ---------- istálló: 6 boksz, félig nyitott ajtókkal ----------
   {
     const { x: sx, z: sz, w, d } = STABLE, front = sz + d / 2, back = sz - d / 2, wh = 3.2;
-    const wallM = lam('#efe4cf'), woodM = lam('#5e3c24'), innerM = lam('#9a7452'), doorM = lam('#7b3426'), trimM = lam('#f4efe6');
+    const wallM = lam('#c4553f'), woodM = lam('#5e3c24'), innerM = lam('#9a7452'), doorM = lam('#8a3326'), trimM = lam('#f6f1e6');
     P.glassMat = new THREE.MeshStandardMaterial({ color: '#2c3a42', roughness: 0.3, emissive: '#ffb860', emissiveIntensity: 0 });
     P.lampMat = new THREE.MeshStandardMaterial({ color: '#fff2c8', roughness: 0.4, emissive: '#ffcf7a', emissiveIntensity: 0 });
     const st = new THREE.Group(); G.add(st);
@@ -126,10 +142,31 @@ export function buildProps(world, scene) {
       }
     });
     roofTex.wrapS = roofTex.wrapT = THREE.RepeatWrapping; roofTex.repeat.set(7, 2.2);
-    const roofM = lam('#ffffff', { map: roofTex }); P.roofMat = roofM; P.roofTex = roofTex;
+    const roofM = lam('#4f475c'); P.roofMat = roofM; P.roofTex = roofTex;
     const half = d / 2 + 0.45, rise = 2.1, len = Math.hypot(half, rise), ang = Math.atan2(rise, half);
     for (const s of [-1, 1]) { const r = box(w + 1.0, 0.16, len, roofM, sx, wh - 0.24 + rise / 2, sz + s * half / 2); r.rotation.x = s * ang; st.add(r); }
-    st.add(box(w + 1.05, 0.2, 0.26, lam('#6f2f22'), sx, wh - 0.24 + rise + 0.05, sz));
+    st.add(box(w + 1.05, 0.2, 0.26, lam('#3f384a'), sx, wh - 0.24 + rise + 0.05, sz));
+    roofRows(st, { cx: sx, cz: sz, width: w + 1.1, half, rise, y0: wh - 0.24, rows: 6, mats: roofMats(['#6a6178', '#5b536b', '#756b84']), ridgeMat: dl('#3f384a') });
+    // kupola szélkakassal a gerincen
+    { const cy = wh - 0.24 + rise + 0.1, cw = 1.2;
+      st.add(box(cw, 0.95, cw, trimM, sx, cy + 0.47, sz));
+      for (const [ox, oz, rw, rd] of [[0, cw / 2 + 0.01, 0.8, 0.04], [0, -cw / 2 - 0.01, 0.8, 0.04], [cw / 2 + 0.01, 0, 0.04, 0.8], [-cw / 2 - 0.01, 0, 0.04, 0.8]]) {
+        for (let k = 0; k < 4; k++) st.add(box(rw, 0.06, rd, woodM, sx + ox, cy + 0.25 + k * 0.15, sz + oz)); }
+      const cap = new THREE.Mesh(new THREE.ConeGeometry(cw * 0.95, 0.85, 4), dl('#5b536b')); cap.rotation.y = Math.PI / 4; cap.position.set(sx, cy + 0.95 + 0.42, sz); cap.castShadow = true; st.add(cap);
+      weatherVane(st, sx, cy + 1.8, sz, dl('#2b2b30')); }
+    // szénapadlás-ajtó az oromfalakon, virágláda az oldalablakok alatt
+    for (const s of [-1, 1]) {
+      const x = sx + s * (w / 2 + 0.03);
+      st.add(box(0.06, 0.9, 0.95, doorM, x, wh + 0.62, sz));
+      for (const r of [0.7, -0.7]) { const b = box(0.07, 1.15, 0.08, trimM, x + s * 0.01, wh + 0.62, sz); b.rotation.x = r; st.add(b); }
+      st.add(box(0.07, 0.08, 1.0, trimM, x + s * 0.01, wh + 1.08, sz)); st.add(box(0.07, 0.08, 1.0, trimM, x + s * 0.01, wh + 0.16, sz));
+      const fb = x + s * 0.14; st.add(box(0.22, 0.2, 1.3, woodM, fb, 1.42, sz));
+      for (let k = 0; k < 3; k++) { const l = new THREE.Mesh(new THREE.IcosahedronGeometry(0.15, 0), dl('#4f9a3f')); l.position.set(fb, 1.58, sz - 0.42 + k * 0.42); l.scale.set(0.9, 0.8, 1.3); st.add(l); }
+      for (let k = 0; k < 7; k++) { const f = new THREE.Mesh(new THREE.OctahedronGeometry(0.065, 0), dl(['#e8453c', '#f2c33a', '#f27aaa'][k % 3])); f.position.set(fb + s * 0.04, 1.66 + (k % 2) * 0.05, sz - 0.55 + k * 0.18); st.add(f); }
+    }
+    flowerPot(st, sx + w / 2 + 0.5, 0, front + 0.55, 1.2, 31); flowerPot(st, sx - w / 2 - 0.5, 0, front + 0.6, 1.2, 32);
+    climbingRose(st, sx + w / 2 + 0.03, 0, front - 0.6, { h: 2.4, nx: 1, nz: 0, seed: 33 });
+    bunting(G, [[sx + w / 2 + 0.25, 3.35, front + 0.35], [HOUSE.x - HOUSE.w / 2 - 0.1, 3.2, front + 0.35]], { sag: 0.35, seed: 5 });
     const tri = new THREE.Shape(); tri.moveTo(-d / 2, 0); tri.lineTo(d / 2, 0); tri.lineTo(0, rise * (d / 2) / half + 0.05); tri.closePath();
     for (const s of [-1, 1]) { const tg = new THREE.ExtrudeGeometry(tri, { depth: 0.3, bevelEnabled: false }); tg.rotateY(Math.PI / 2); const m = new THREE.Mesh(tg, wallM); m.position.set(sx + s * (w / 2 - 0.15) - 0.15, wh - 0.02, sz); m.castShadow = true; st.add(m); }
     const cd = 1.7, ca = Math.atan2(0.45, cd);
@@ -211,7 +248,7 @@ export function buildProps(world, scene) {
     const fence = (x0, z0, x1, z1) => {
       const len = Math.hypot(x1 - x0, z1 - z0), n = Math.max(1, Math.round(len / 4));
       const yaw = Math.atan2(x1 - x0, z1 - z0);
-      for (let i = 0; i <= n; i++) { const t = i / n; G.add(box(0.14, 1.25, 0.14, postM, x0 + (x1 - x0) * t, 0.62, z0 + (z1 - z0) * t)); }
+      for (let i = 0; i <= n; i++) { const t = i / n; G.add(box(0.14, 1.25, 0.14, postM, x0 + (x1 - x0) * t, 0.62, z0 + (z1 - z0) * t)); const cp = new THREE.Mesh(new THREE.ConeGeometry(0.13, 0.16, 4), dl('#2e6fd8')); cp.rotation.y = Math.PI / 4; cp.position.set(x0 + (x1 - x0) * t, 1.33, z0 + (z1 - z0) * t); G.add(cp); }
       for (const y of [0.55, 1.08]) { const r = box(0.07, 0.12, len, railM, (x0 + x1) / 2, y, (z0 + z1) / 2); r.rotation.y = yaw; G.add(r); }
       world.addBox((x0 + x1) / 2, (z0 + z1) / 2, 0.12, len / 2, yaw, 1.15);
     };
@@ -230,6 +267,11 @@ export function buildProps(world, scene) {
     const jx = ARENA.x, jz = Z1 + 5;
     G.add(box(3.2, 2.6, 2.6, lam('#f1ece2'), jx, 1.3, jz));
     G.add(box(3.6, 0.2, 3.0, lam('#2e5b8f'), jx, 2.7, jz));
+    { const pr = new THREE.Mesh(new THREE.ConeGeometry(2.45, 1.3, 4), dl('#2e6fd8')); pr.rotation.y = Math.PI / 4; pr.scale.z = 0.85; pr.position.set(jx, 3.45, jz); pr.castShadow = true; G.add(pr);
+      G.add(box(0.06, 1.6, 0.06, lam('#f4f4f0'), jx, 4.6, jz)); const fl = new THREE.Mesh(new THREE.PlaneGeometry(0.8, 0.5), lam('#e8453c', { side: THREE.DoubleSide })); fl.position.set(jx + 0.42, 5.15, jz); G.add(fl);
+      const pm2 = lam('#f4f4f0'), bz = Z1 + 2.3;
+      for (const px2 of [jx - 14, jx + 14, jx - 30, jx + 30]) { G.add(box(0.12, 3.4, 0.12, pm2, px2, 1.7, bz)); const tip = new THREE.Mesh(new THREE.ConeGeometry(0.12, 0.25, 4), dl('#e8453c')); tip.position.set(px2, 3.52, bz); G.add(tip); world.addCircle(px2, bz, 0.12, 99); }
+      bunting(G, [[jx - 30, 3.3, bz], [jx - 14, 3.3, bz], [jx - 1.6, 2.85, jz - 1.4], [jx + 1.6, 2.85, jz - 1.4], [jx + 14, 3.3, bz], [jx + 30, 3.3, bz]], { sag: 0.5, seed: 8 }); }
     G.add(box(2.6, 0.9, 0.06, lam('#2c3a42'), jx, 1.8, jz - 1.31));
     world.addBox(jx, jz, 1.7, 1.4, 0, 99);
     const banner = new THREE.Mesh(new THREE.PlaneGeometry(6, 0.9), lam('#ffffff', { map: textTex('VÁGTAVÖLGYI LOVASKUPA', { w: 512, h: 76, bg: '#2e5b8f', fg: '#ffffff', font: 'bold 38px ui-rounded, system-ui' }), side: THREE.DoubleSide }));
@@ -477,11 +519,16 @@ export function buildProps(world, scene) {
     const tri = new THREE.Shape(); tri.moveTo(-d / 2, 0); tri.lineTo(d / 2, 0); tri.lineTo(0, rise * (d / 2) / half); tri.closePath();
     for (const sg of [-1, 1]) { const tg = new THREE.ExtrudeGeometry(tri, { depth: 0.2, bevelEnabled: false }); tg.rotateY(Math.PI / 2); const m = new THREE.Mesh(tg, lam(wall)); m.position.set(sg * (w / 2 - 0.1) - 0.1, h, 0); g.add(m); }
     g.add(box(1.1, 2.1, 0.08, lam(door), 0, 1.05, d / 2 + 0.03));
-    for (const xo of [-w / 2 + 1.4, w / 2 - 1.4]) { g.add(box(1.0, 0.9, 0.06, lam('#2c3a42'), xo, h * 0.6, d / 2 + 0.02)); g.add(box(0.3, 0.95, 0.07, lam('#3f7a4a'), xo - 0.68, h * 0.6, d / 2 + 0.03)); g.add(box(0.3, 0.95, 0.07, lam('#3f7a4a'), xo + 0.68, h * 0.6, d / 2 + 0.03)); }
+    { const rc = new THREE.Color(roof), sh = [rc.clone().multiplyScalar(1.12), rc.clone(), rc.clone().multiplyScalar(0.88)].map((c) => '#' + c.getHexString());
+      roofRows(g, { width: w + 0.9, half, rise, y0: h - 0.05, rows: 6, mats: roofMats(sh), ridgeMat: dl('#5a3a2a') }); }
+    for (const sx2 of [-1, 1]) for (const sz2 of [-1, 1]) g.add(box(0.22, h, 0.22, lam('#5e3c24'), sx2 * (w / 2), h / 2, sz2 * (d / 2)));
+    g.add(box(w + 0.1, 0.14, 0.06, lam('#5e3c24'), 0, h - 0.1, d / 2 + 0.03)); g.add(box(w + 0.1, 0.14, 0.06, lam('#5e3c24'), 0, 0.62, d / 2 + 0.03));
+    for (const xo of [-w / 2 + 1.4, w / 2 - 1.4]) { g.add(box(1.1, 0.18, 0.22, lam('#5e3c24'), xo, h * 0.6 - 0.56, d / 2 + 0.12)); for (let k = 0; k < 5; k++) { const f = new THREE.Mesh(new THREE.OctahedronGeometry(0.07, 0), dl(['#e8453c', '#f2c33a', '#ffffff'][k % 3])); f.position.set(xo - 0.4 + k * 0.2, h * 0.6 - 0.42, d / 2 + 0.14); g.add(f); } g.add(box(1.0, 0.9, 0.06, lam('#2c3a42'), xo, h * 0.6, d / 2 + 0.02)); g.add(box(0.3, 0.95, 0.07, lam('#3f7a4a'), xo - 0.68, h * 0.6, d / 2 + 0.03)); g.add(box(0.3, 0.95, 0.07, lam('#3f7a4a'), xo + 0.68, h * 0.6, d / 2 + 0.03)); }
     world.addBox(x, z, w / 2 + 0.2, d / 2 + 0.2, yaw, 99);
     return g;
   };
-  { const hg = building(REG.farm.x, REG.farm.z, Math.PI, { w: 10, d: 6.5, h: 3.2, rise: 2.3 }); hg.add(box(0.7, 1.6, 0.7, lam('#8c4a3a'), 2.5, 5.3, -1)); }
+  P.smokes = [];
+  { const hg = building(REG.farm.x, REG.farm.z, Math.PI, { w: 10, d: 6.5, h: 3.2, rise: 2.3, wall: '#f8ecd4', roof: '#d0583c' }); hg.add(box(0.7, 1.6, 0.7, lam('#8c4a3a'), 2.5, 5.3, -1)); hg.updateMatrixWorld(true); const sp = hg.localToWorld(new THREE.Vector3(2.5, 6.25, -1)); P.smokes.push(new Smoke(G, sp.x, sp.y, sp.z)); }
   building(REG.farm.x + 13, REG.farm.z - 10, -Math.PI / 2, { w: 9, d: 7, h: 4, rise: 2.8, wall: '#9a4d36', roof: '#5f5a55', door: '#5d3b25' });
   const fenceLine = (pts2, { h = 1.0, color = '#8a6440', gaps = [] } = {}) => {
     const pm = lam(color);
@@ -505,7 +552,9 @@ export function buildProps(world, scene) {
   { const wx = REG.farm.x - 9, wz = REG.farm.z - 6, wy = world.heightAt(wx, wz); // kút
     const wl = new THREE.Mesh(new THREE.CylinderGeometry(0.75, 0.8, 0.8, 9, 1, true), stoneM); wl.position.set(wx, wy + 0.4, wz); wl.castShadow = true; G.add(wl);
     for (const s2 of [-1, 1]) G.add(box(0.1, 1.7, 0.1, darkWood, wx + s2 * 0.7, wy + 0.85, wz));
-    const rf = box(1.8, 0.08, 1.2, lam('#a8402e'), wx, wy + 1.8, wz); rf.rotation.z = 0.0; G.add(rf); world.addCircle(wx, wz, 0.9, 99); }
+    const wr = roofMats(['#d0583c']); for (const s2 of [-1, 1]) { const rf = box(1.8, 0.07, 0.95, wr[0], wx, wy + 1.92, wz + s2 * 0.38); rf.rotation.x = s2 * 0.62; G.add(rf); }
+    G.add(box(0.08, 0.08, 1.6, darkWood, wx, wy + 2.18, wz)); { const bk = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.13, 0.26, 7), lam('#7a4e2c')); bk.position.set(wx + 0.2, wy + 1.15, wz); G.add(bk); }
+    world.addCircle(wx, wz, 0.9, 99); }
   for (const [x, z, a] of [[REG.farm.x + 6, REG.farm.z + 8, 0.2], [REG.farm.x + 8.5, REG.farm.z + 7.2, 1.3], [130, 270, 0.7]]) {
     const c = new THREE.Mesh(new THREE.CylinderGeometry(0.75, 0.75, 1.2, 9), lam('#cfae5c', { map: P.hayMat.map })); c.rotation.z = Math.PI / 2; c.rotation.y = a;
     c.position.set(x, world.heightAt(x, z) + 0.74, z); c.castShadow = true; G.add(c); world.addCircle(x, z, 0.85, 1.4);
@@ -669,7 +718,8 @@ export function buildProps(world, scene) {
   G.children.filter((c) => c.isGroup && !keep.has(c) && !P.obstacles.some((o) => o.g === c) && !P.gates.some((g) => g.g === c)).forEach((c) => mergeStatic(c));
 
   // ---------- akadályok animációja ----------
-  P.update = (dt) => {
+  P.update = (dt, t = 0) => {
+    for (const s2 of P.smokes) s2.update(t);
     for (const o of P.obstacles) {
       if (!o.poles.length) continue;
       if (o.knocked && o.fall < 1) {

@@ -1395,7 +1395,7 @@ function update(dt) {
   R.cullT = (R.cullT || 0) - dt; if (R.cullT <= 0) { R.cullT = 0.25; props.cull(camera.position); }
   world.waterUniforms.uTime.value = time; world.treeUniforms.uTime.value = time;
   world.sky.position.copy(camera.position);
-  props.update(dt); props.horseshoes.update(time, camera.position); props.collectUpdate(time, camera.position);
+  props.update(dt, time); house.update(time); props.horseshoes.update(time, camera.position); props.collectUpdate(time, camera.position);
   world.fallUniform.value = time;
   const fev = fauna.update(dt, time, { px: R.x, pz: R.z, pv: mounted || onFoot ? R.v : 0, cx: camera.position.x, cz: camera.position.z, mode: onFoot ? 'ride' : R.mode });
   if (mounted || R.mode === 'foot') for (const e of fev) { if (e.type === 'flee') msgOnce('flee', 'A vadlovak megijedtek! Lassan, lépésben közelíts hozzájuk.', 20); if (e.type === 'curious') msgOnce('cur', `${e.name} kíváncsian közelebb jön…`, 25); if (e.type === 'near') msgOnce('herd', 'Nyerítés! Vadlovak legelnek a közelben 🐴', 90); }

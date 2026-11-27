@@ -24,7 +24,7 @@ Az app egyetlen statikus weboldal. Nincs szükség szerverre, fiókra vagy telep
 - **Gondozás az istállónál:** széna, víz, zab, alma, répa, csutakolás (ujjal kell húzni a lovon), patakaparás, simogatás.
 - **Felszerelés:** nyereg, kantár, nyeregalátét, fásli és takaró, többféle színben.
 - **Kinézet:** a ló neve és szőrszíne (pej, sárga, fekete, szürke, almásszürke, palomino, tarka), hóka, fehér zokni, valamint a lovas kabátja, sisakja és haja.
-- **Grafika:** low-poly stílus: szögletes, lapos árnyalású formák egységesen a lovon, a lovason, a tájon, az állatokon és az épületeken. Tincses sörény és farok, kúpos fenyők, szögletes lombú fák, hullámzó szögletes víz, szögletes felhők, ragyogás és színkorrekció. Telefonon gyorsabb, mint a korábbi, élethűbb grafika volt.
+- **Grafika:** low-poly stílus: szögletes, lapos árnyalású formák egységesen a lovon, a lovason, a tájon, az állatokon és az épületeken. Tincses sörény és farok, kúpos fenyők, szögletes lombú fák, hullámzó szögletes víz, szögletes felhők, ragyogás és színkorrekció. Telefonon gyorsabb, mint a korábbi, élethűbb grafika volt. Mesés épületek: favázas ház cserépsoros tetővel, füstölgő kéménnyel, futórózsával és léckerítéses virágágyásokkal; piros istálló kupolával és lovas szélkakassal; zászlófüzérek az udvaron és a díjugrató pályánál.
 - **Gyűjtenivalók:** 40 aranypatkó (darabja 5 érme), 6 féle ritka virág (pipacs, búzavirág, harangvirág, gyöngyvirág, havasi gyopár, tavirózsa, mindből 3), 12 felfedezhető hely (darabja 10 érme), valamint alma az almáskertben és répa a veteményesben. Az alma és a répa újranő, a lovad megeheti, egy almával pedig vadló barátot szerezhetsz.
 - **Gyűjtemény** a menüben: patkók, virágok, felfedezések, készlet és vadló barátok.
 
