@@ -165,8 +165,8 @@ export class Rider {
         A.up.rotation.set(sw, 0, 0); A.fo.rotation.set(-(run ? 1.4 : 0.3) - Math.max(0, -sw) * 0.4, 0, 0);
       });
       this.pony.rotation.x = 0.25 + Math.sin(this.time * 9) * 0.05 * amp + (run ? 0.25 : 0);
-    } else if (pose === 'sit' || pose === 'bath') {
-      const bath = pose === 'bath';
+    } else if (pose === 'sit' || pose === 'bath' || pose === 'drive') {
+      const bath = pose === 'bath', drive = pose === 'drive';
       this.pelvis.position.set(0, 0, 0);
       this.torso.rotation.x = bath ? -0.42 : -0.08; this.head.rotation.x = bath ? 0.3 : 0.05;
       this.legs.forEach((L) => {
@@ -174,7 +174,11 @@ export class Rider {
         const F = bath ? this._f.set(L.s * 0.13, hipY - 0.16, 0.8) : this._f.set(L.s * 0.14, hipY - 0.42, 0.47);
         this.legTo(L, H, F, this._v.set(L.s * 0.1, 1, 0.3), bath ? -0.6 : 0);
       });
-      this.arms.forEach((A) => { A.plane.rotation.set(0, 0, A.s * (bath ? 0.5 : 0.12)); A.up.rotation.set(bath ? 0.2 : -0.45, 0, 0); A.fo.rotation.set(bath ? -0.4 : -0.85, 0, 0); });
+      this.arms.forEach((A) => {
+        if (drive) { A.plane.rotation.set(0, 0, A.s * 0.04); A.up.rotation.set(-0.95, 0, -A.s * 0.12); A.fo.rotation.set(-0.45, 0, 0); return; }
+        A.plane.rotation.set(0, 0, A.s * (bath ? 0.5 : 0.12)); A.up.rotation.set(bath ? 0.2 : -0.45, 0, 0); A.fo.rotation.set(bath ? -0.4 : -0.85, 0, 0);
+      });
+      if (drive) { this.torso.rotation.x = 0.02; this.head.rotation.x = -0.05; }
       this.pony.rotation.x = bath ? 1.2 : 0.2;
     } else if (pose === 'lie') {
       this.pelvis.position.set(0, 0, 0); this.head.rotation.x = 0.12;

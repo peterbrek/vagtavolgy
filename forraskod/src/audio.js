@@ -92,5 +92,32 @@ export class Sound {
   brush() { this.burst({ f: 3500, q: 0.7, dur: 0.12, vol: 0.06 }); }
   munch() { for (let i = 0; i < 3; i++) this.burst({ f: 2000, q: 1, dur: 0.05, vol: 0.12, at: i * 0.16 }); }
   splash() { this.burst({ f: 1200, q: 0.5, dur: 0.35, vol: 0.2 }); }
+  // motor: fűrészfog + négyszög alhang, aluláteresztő szűrővel; a fordulat a sebességgel nő
+  engine(level, speed = 0, thr = 0) {
+    if (!this.ctx) return;
+    if (!this.engO) {
+      if (level <= 0) return;
+      const o = this.ctx.createOscillator(); o.type = 'sawtooth'; o.frequency.value = 45;
+      const o2 = this.ctx.createOscillator(); o2.type = 'square'; o2.frequency.value = 22;
+      const f = this.ctx.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 300; f.Q.value = 2.5;
+      const g2 = this.ctx.createGain(); g2.gain.value = 0.45; const g = this.ctx.createGain(); g.gain.value = 0;
+      o.connect(f); o2.connect(g2); g2.connect(f); f.connect(g); g.connect(this.master); o.start(); o2.start();
+      this.engO = o; this.engO2 = o2; this.engF = f; this.engG = g;
+    }
+    const t = this.t(), rpm = 40 + speed * 5.5 + thr * 12;
+    this.engO.frequency.setTargetAtTime(rpm, t, 0.15); this.engO2.frequency.setTargetAtTime(rpm / 2, t, 0.15);
+    this.engF.frequency.setTargetAtTime(240 + speed * 26 + thr * 110, t, 0.2);
+    this.engG.gain.setTargetAtTime(level * (0.055 + thr * 0.035), t, level > 0 ? 0.12 : 0.25);
+  }
+  engineStart() { this.burst({ f: 260, q: 0.7, type: 'lowpass', dur: 0.55, vol: 0.3 }); this.tone({ f: 40, f2: 70, dur: 0.5, vol: 0.12, type: 'sawtooth' }); }
+  horn() {
+    if (!this.ctx) return;
+    const t = this.t(), f = this.ctx.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 1600;
+    const g = this.ctx.createGain(); g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(0.14, t + 0.02); g.gain.setValueAtTime(0.14, t + 0.42); g.gain.linearRampToValueAtTime(0, t + 0.5);
+    f.connect(g); g.connect(this.master);
+    for (const fr of [392, 494]) { const o = this.ctx.createOscillator(); o.type = 'square'; o.frequency.value = fr; o.connect(f); o.start(t); o.stop(t + 0.52); }
+  }
+  door() { this.burst({ f: 220, q: 0.8, type: 'lowpass', dur: 0.16, vol: 0.45 }); this.tone({ f: 95, f2: 50, dur: 0.12, vol: 0.25 }); }
+  ramp() { this.tone({ f: 130, f2: 60, dur: 0.28, vol: 0.28 }); this.burst({ f: 420, q: 0.8, dur: 0.2, vol: 0.28, at: 0.04 }); }
   bird() { const b = 2400 + Math.random() * 1500; for (let i = 0; i < 2 + Math.floor(Math.random() * 3); i++) this.tone({ f: b, f2: b * 1.35, dur: 0.07, vol: 0.035, at: i * 0.12 }); }
 }

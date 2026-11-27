@@ -409,7 +409,7 @@ export class Horse {
     f = Math.max(f, v * gp.duty / Smax);
     if (v < 0.05) f = 0;
     this.phase = (this.phase + f * dt) % 1;
-    const S = f > 0 ? v * gp.duty / f : 0;
+    const S = (f > 0 ? v * gp.duty / f : 0) * (st.v < -0.05 ? -1 : 1); // hátrálás: fordított lépés
     const amp = clamp(v / 0.6, 0, 1);
     const ph = this.phase, TAU = Math.PI * 2;
 

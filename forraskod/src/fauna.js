@@ -105,7 +105,8 @@ export class Fauna {
     this.wild = defs.map((d) => new WildHorse(scene, { ...d, x: W.x + d.ox, z: W.z + d.oz }, rnd));
     this.wild[4].mother = this.wild[1];
     this.buildFar();
-    this.herd = { x: W.x, z: W.z, t: 10, flee: 0, fx: 0, fz: 0, curious: null, stillT: 0 };
+    // mode: 'graze' (a réten), 'follow' (óvatosan követik a lovast), 'return' (hazaindulnak)
+    this.herd = { x: W.x, z: W.z, t: 10, flee: 0, fx: 0, fz: 0, curious: null, stillT: 0, mode: 'graze', trust: 0, idle: 0, nerv: 0, cool: 0, trail: [] };
     // állatok
     this.critters = [];
     const spot = (cx, cz, r, ok = () => true) => { for (let g = 0; g < 200; g++) { const a = rnd() * 6.28, d = Math.sqrt(rnd()) * r, x = cx + Math.cos(a) * d, z = cz + Math.sin(a) * d; if (world.heightAt(x, z) > WATER + 0.3 && world.slopeAt(x, z) < 0.35 && ok(x, z)) return [x, z]; } return [cx, cz]; };
@@ -213,39 +214,111 @@ export class Fauna {
     h.root.rotation.set(w.pitch, w.yaw, clamp(-w.yawRate * w.v * 0.03, -0.15, 0.15));
   }
 
+  // a lovas nyomvonalán d méterrel hátrébb lévő pont (és a haladási irány)
+  trailPoint(d, px, pz) {
+    const T = this.herd.trail; let ax = px, az = pz;
+    for (let i = T.length - 1; i >= 0; i--) {
+      const b = T[i], sx = b.x - ax, sz = b.z - az, l = Math.hypot(sx, sz);
+      if (l >= d && l > 1e-3) { const k = d / l; return { x: ax + sx * k, z: az + sz * k, dx: -sx / l, dz: -sz / l }; }
+      d -= l; ax = b.x; az = b.z;
+    }
+    return null;
+  }
+
+  goHome(time, why) {
+    const H = this.herd, Wr = REG.wild, rnd = this.rnd;
+    H.mode = 'return'; H.cool = time + 12; H.trust = 0; H.curious = null; H.stillT = 0;
+    // a lovas nyomvonalán visszafelé mennek (így megkerülik a kerítéseket, épületeket), onnan egyenesen haza
+    H.back = H.trail.length > 1 ? H.trail.slice() : null; H.bi = -1; H.trail = [];
+    const a = rnd() * 6.28, d = rnd() * Wr.r * 0.3; H.x = Wr.x + Math.cos(a) * d; H.z = Wr.z + Math.sin(a) * d; H.t = 40;
+    if (why) this.events.push({ type: 'home', why });
+  }
+
   updateHerd(dt, time, ctx) {
     const H = this.herd, Wr = REG.wild, W = this.world, rnd = this.rnd;
+    const who = ctx.who || ctx.mode;
     const dP = Math.hypot(ctx.px - H.x, ctx.pz - H.z);
     const anyNear = this.wild.some((w) => Math.hypot(w.x - ctx.px, w.z - ctx.pz) < 170);
     // ijedés
     let closest = 999; for (const w of this.wild) closest = Math.min(closest, Math.hypot(w.x - ctx.px, w.z - ctx.pz));
-    // csak a közvetlen közelükbe vágtató lovastól ijednek meg, és nem futnak messzire
-    if (ctx.mode === 'ride' && H.flee <= 0 && (closest < 16 && ctx.pv > 6.2 || closest < 6 && ctx.pv > 3.2 && !H.curious)) {
+    // csak a közvetlen közelükbe vágtató lovastól (vagy száguldó autótól) ijednek meg, és nem futnak messzire
+    const scared = who === 'drive' ? closest < 24 && ctx.pv > 2.5 : ctx.mode === 'ride' && (closest < 16 && ctx.pv > 6.2 || closest < 6 && ctx.pv > 3.2 && !H.curious);
+    if (H.flee <= 0 && scared) {
       H.flee = 4.5 + rnd() * 2; let ax = H.x - ctx.px, az = H.z - ctx.pz; const l = Math.hypot(ax, az) || 1; ax /= l; az /= l;
-      let tx = H.x + ax * 38, tz = H.z + az * 38;
-      const dc = Math.hypot(tx - Wr.x, tz - Wr.z), lim = Wr.r * 0.55; if (dc > lim) { tx = Wr.x + (tx - Wr.x) / dc * lim - az * 18; tz = Wr.z + (tz - Wr.z) / dc * lim + ax * 18; }
+      const wasF = H.mode === 'follow';
+      if (wasF) { const hp = this.herdPos(); ax = hp.x - ctx.px; az = hp.z - ctx.pz; const l2 = Math.hypot(ax, az) || 1; ax /= l2; az /= l2; H.x = hp.x; H.z = hp.z; }
+      let tx = H.x + ax * (wasF ? 22 : 38), tz = H.z + az * (wasF ? 22 : 38);
+      const dc = Math.hypot(tx - Wr.x, tz - Wr.z), lim = Wr.r * 0.55; if (dc > lim && !wasF) { tx = Wr.x + (tx - Wr.x) / dc * lim - az * 18; tz = Wr.z + (tz - Wr.z) / dc * lim + ax * 18; }
       H.x = tx; H.z = tz; H.curious = null; H.t = Math.min(H.t, 12);
+      if (wasF) { this.goHome(time, null); H.cool = time + 15; H.x = tx; H.z = tz; H.flee = 3.5; }
+      H.trust = 0;
       this.sound.neigh(clamp(1 - closest / 90, 0, 1)); this.events.push({ type: 'flee' });
     }
     H.flee -= dt;
+    // követés: ha a lovas lépésben, lassan közelít, a ménes óvatosan utána indul
+    const slowWho = who === 'ride' || who === 'foot';
+    if (H.mode !== 'follow') {
+      const slowNear = slowWho && H.flee <= 0 && closest < 26 && ctx.pv > 0.3 && ctx.pv < 3.0 && time > H.cool;
+      if (slowNear) H.trust += dt; else H.trust = Math.max(0, H.trust - dt * (ctx.pv >= 3.0 ? 3 : 0.5));
+      if (H.trust > 4) {
+        H.mode = 'follow'; H.trust = 0; H.idle = 0; H.nerv = 0; H.trail = [{ x: ctx.px, z: ctx.pz }];
+        const dd = (w) => Math.hypot(w.x - ctx.px, w.z - ctx.pz);
+        this.wild.filter((w) => !w.mother).sort((a, b) => dd(a) - dd(b)).forEach((w, k) => { w.rank = k; w.lat = [0, 1.5, -1.5, 0.8, -0.8][k] || 0; });
+        this.events.push({ type: 'follow' });
+      }
+    }
+    if (H.mode === 'follow') {
+      const T = H.trail, last = T[T.length - 1];
+      if (Math.hypot(ctx.px - last.x, ctx.pz - last.z) > 1.5) { T.push({ x: ctx.px, z: ctx.pz }); if (T.length > 400) T.shift(); }
+      const moving = ctx.pv > 0.3 && slowWho;
+      H.idle = moving ? 0 : H.idle + dt;
+      if (ctx.pv > 3.2 && slowWho) H.nerv += dt; else H.nerv = Math.max(0, H.nerv - dt * 0.5);
+      if (H.nerv > 1.5) this.goHome(time, 'fast');
+      else if (H.idle > 45) this.goHome(time, 'idle');
+      else if (closest > 45 || (who === 'drive' && ctx.pv > 1)) this.goHome(time, 'far');
+    } else if (H.mode === 'return') {
+      const B = H.back;
+      if (B && H.flee <= 0) {
+        if (H.bi < 0) { const hp = this.herdPos(); let bd = 1e9; B.forEach((p, i) => { const d = Math.hypot(p.x - hp.x, p.z - hp.z); if (d < bd) { bd = d; H.bi = i; } }); H.lx = B[H.bi].x; H.lz = B[H.bi].z; }
+        // vezetőpont halad visszafelé a nyomon, de megvárja a lemaradókat
+        let far = 0; for (const w of this.wild) far = Math.max(far, Math.hypot(w.x - H.lx, w.z - H.lz));
+        let step = far < 14 ? 3.4 * dt : 0;
+        while (step > 0 && H.bi > 0) { const p = B[H.bi - 1], dx = p.x - H.lx, dz = p.z - H.lz, l = Math.hypot(dx, dz); if (l <= step) { H.lx = p.x; H.lz = p.z; H.bi--; step -= l; } else { H.lx += dx / l * step; H.lz += dz / l * step; step = 0; } }
+        if (H.bi === 0 && far < 14) H.back = null;
+      }
+      const hp = this.herdPos(); if (!H.back && Math.hypot(hp.x - Wr.x, hp.z - Wr.z) < Wr.r * 0.55) H.mode = 'graze';
+    }
     // vándorlás
     H.t -= dt;
-    if (H.t <= 0 && H.flee <= 0) { H.t = 25 + rnd() * 25; const a = rnd() * 6.28, d = rnd() * Wr.r * 0.38; H.x = Wr.x + Math.cos(a) * d; H.z = Wr.z + Math.sin(a) * d; }
+    if (H.t <= 0 && H.flee <= 0 && H.mode === 'graze') { H.t = 25 + rnd() * 25; const a = rnd() * 6.28, d = rnd() * Wr.r * 0.38; H.x = Wr.x + Math.cos(a) * d; H.z = Wr.z + Math.sin(a) * d; }
     // kíváncsiság
-    if (ctx.mode === 'ride' && ctx.pv < 0.3 && closest < 20 && H.flee <= 0) H.stillT += dt; else if (ctx.pv > 1.2 || ctx.mode !== 'ride' || closest > 30) { H.stillT = 0; H.curious = null; }
+    if (ctx.mode === 'ride' && ctx.pv < 0.3 && closest < 20 && H.flee <= 0 && H.mode !== 'return') H.stillT += dt; else if (ctx.pv > 1.2 || ctx.mode !== 'ride' || closest > 30 || H.mode === 'return') { H.stillT = 0; H.curious = null; }
     // ha a lovas közeledik, a ménes nyerítéssel jelez
     if (dP < 150 && !this.heard) { this.heard = true; this.sound.neigh(0.35); this.events.push({ type: 'near' }); }
     if (dP > 260) this.heard = false;
     if (H.stillT > 3 && !H.curious) { let best = null, bd = 99; for (const w of this.wild) { if (w.mother) continue; const d = Math.hypot(w.x - ctx.px, w.z - ctx.pz); if (d < bd) { bd = d; best = w; } } H.curious = best; if (best) this.events.push({ type: 'curious', name: best.name }); }
     for (const w of this.wild) {
       let tx = H.x + w.ox, tz = H.z + w.oz;
-      if (w.mother) { tx = w.mother.x + 2.2; tz = w.mother.z + 1.8; }
+      const follow = H.mode === 'follow' && H.flee <= 0;
+      const backT = H.mode === 'return' && H.back && H.flee <= 0;
+      if (w.mother && !follow) { tx = w.mother.x + 2.2; tz = w.mother.z + 1.8; }
+      if (backT && !w.mother) { tx = H.lx + w.ox * 0.35; tz = H.lz + w.oz * 0.35; }
+      else if (follow && H.curious !== w) {
+        // a lovas nyomában, óvatos távolságban, egymás mögött (a csikó az anyja mögött)
+        const m = w.mother, want = 7 + ((m ? m.rank : w.rank) || 0) * 3.4 + (m ? 2.6 : 0), tp = this.trailPoint(want, ctx.px, ctx.pz), lat = m ? (m.lat || 0) + 0.9 : (w.lat || 0);
+        if (tp) { tx = tp.x - tp.dz * lat; tz = tp.z + tp.dx * lat; }
+        else { const ax = w.x - ctx.px, az = w.z - ctx.pz, l = Math.hypot(ax, az) || 1; tx = ctx.px + ax / l * want; tz = ctx.pz + az / l * want; }
+        const ex = tx - ctx.px, ez = tz - ctx.pz, el = Math.hypot(ex, ez);
+        if (el < 5.5) { if (el < 0.01) { tx = w.x; tz = w.z; } else { tx = ctx.px + ex / el * 5.5; tz = ctx.pz + ez / el * 5.5; } }
+      }
       if (H.curious === w) { const ax = w.x - ctx.px, az = w.z - ctx.pz, l = Math.hypot(ax, az) || 1; tx = ctx.px + ax / l * 3.6; tz = ctx.pz + az / l * 3.6; }
       const dx = tx - w.x, dz = tz - w.z, d = Math.hypot(dx, dz);
       let vt = 0;
       if (H.flee > 0) vt = d > 3 ? (w.mother ? 9.5 : 11.5) : 0;
+      else if (follow && H.curious !== w) vt = d < 1.2 ? 0 : d < 7 ? clamp(0.45 + d * 0.32, 0.6, Math.max(ctx.pv + 0.7, 1.9)) : d < 16 ? 2.7 : 4.6;
+      else if (backT) vt = d < 1.5 ? 0 : d < 6 ? 2.2 : 4.2;
       else if (d > 22) vt = 4.2; else if (d > 2.5) vt = H.curious === w ? 1.4 : 1.7;
-      if (w.mother && d > 6 && H.flee <= 0) vt = 4.2;
+      if (w.mother && d > 6 && H.flee <= 0 && !follow && !backT) vt = 4.2;
       const desired = d > 0.5 ? Math.atan2(dx, dz) : w.yaw;
       const diff = wrapAngle(desired - w.yaw), tr = lerp(2.0, 0.9, clamp(w.v / 11, 0, 1));
       w.yawRate = damp(w.yawRate, vt > 0 ? clamp(diff * 2.5, -tr, tr) : 0, 6, dt);
@@ -255,7 +328,10 @@ export class Fauna {
       w.x += Math.sin(w.yaw) * w.v * dt; w.z += Math.cos(w.yaw) * w.v * dt;
       // egymástól és a játékostól távol
       for (const o of this.wild) if (o !== w) { const ex = w.x - o.x, ez = w.z - o.z, ed = Math.hypot(ex, ez), md = 2.2 * (w.scale + o.scale) / 2; if (ed < md && ed > 0.01) { w.x += ex / ed * (md - ed) * 0.5; w.z += ez / ed * (md - ed) * 0.5; } }
-      const ep = Math.hypot(w.x - ctx.px, w.z - ctx.pz); if (ep < 2.6 && ep > 0.01) { w.x += (w.x - ctx.px) / ep * (2.6 - ep); w.z += (w.z - ctx.pz) / ep * (2.6 - ep); }
+      const pr = who === 'drive' ? 3.6 : 2.6, ep = Math.hypot(w.x - ctx.px, w.z - ctx.pz); if (ep < pr && ep > 0.01) { w.x += (w.x - ctx.px) / ep * (pr - ep); w.z += (w.z - ctx.pz) / ep * (pr - ep); }
+      // saját lovak, épületek, kerítések, fák, autó: a vadlovak kikerülik őket
+      if (ctx.others) for (const o of ctx.others) { const ex = w.x - o.x, ez = w.z - o.z, ed = Math.hypot(ex, ez); if (ed < 2.3 && ed > 0.01) { w.x += ex / ed * (2.3 - ed); w.z += ez / ed * (2.3 - ed); } }
+      if (H.mode !== 'graze' || ep < 60) { const p = this._p || (this._p = { x: 0, z: 0 }); p.x = w.x; p.z = w.z; W.resolve(p, 0.5 * w.scale, 0); w.x = p.x; w.z = p.z; }
       w.gait = gaitOf(w.v);
       const dc = Math.hypot(w.x - ctx.cx, w.z - ctx.cz), vis = dc < 105, farVis = !vis && dc < 280, i = this.wild.indexOf(w);
       w.h.root.visible = vis;
@@ -277,7 +353,7 @@ export class Fauna {
     const vis = Math.hypot(c.x - ctx.cx, c.z - ctx.cz) < ({ deer: 110, sheep: 70, duck: 70, rabbit: 45 })[c.kind];
     c.g.visible = vis; if (!vis && c.state !== 'flee') return;
     c.t -= dt;
-    if (c.kind !== 'sheep' && ctx.mode === 'ride' && c.state !== 'flee' && (dp < c.fear && ctx.pv > 2.5 || dp < c.near)) {
+    if (c.kind !== 'sheep' && (ctx.mode === 'ride' || ctx.mode === 'drive') && c.state !== 'flee' && (dp < c.fear && ctx.pv > 2.5 || dp < c.near)) {
       c.state = 'flee'; c.t = c.kind === 'deer' ? 6 : 2.5;
       let ax = c.x - ctx.px, az = c.z - ctx.pz; const l = Math.hypot(ax, az) || 1; const d = c.kind === 'deer' ? 55 : c.kind === 'duck' ? 12 : 14;
       c.tx = c.x + ax / l * d + (rnd() - 0.5) * 10; c.tz = c.z + az / l * d + (rnd() - 0.5) * 10;

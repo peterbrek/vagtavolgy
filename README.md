@@ -1,6 +1,6 @@
 # Vágtavölgy
 
-3D lovas játék iPhone-ra (és iPadre). Akár hat saját lovad lehet az istállóban, velük szabadon lovagolhatsz egy völgyben: réten, erdőben, szurdokban, a tó partján, a tanyán és a várromnál. Útközben akadályokat ugratsz, aranypatkókat, virágokat és almát gyűjtesz, vadlovakkal barátkozol, otthon pedig gondozod és felszereled a lovakat. Bármikor leszállhatsz, gyalog sétálhatsz, és bemehetsz a házadba. Napszak és évszak is váltható.
+3D lovas játék iPhone-ra (és iPadre). Akár hat saját lovad lehet az istállóban, velük szabadon lovagolhatsz egy völgyben: réten, erdőben, szurdokban, a tó partján, a tanyán és a várromnál. Útközben akadályokat ugratsz, aranypatkókat, virágokat és almát gyűjtesz, vadlovakkal barátkozol, otthon pedig gondozod és felszereled a lovakat. Bármikor leszállhatsz, gyalog sétálhatsz, bemehetsz a házadba, vagy lószállítóval elviheted a lovaidat a völgy másik végébe. Napszak és évszak is váltható.
 
 Az app egyetlen statikus weboldal. Nincs szükség szerverre, fiókra vagy telepítésre. A kezdőképernyőre téve az első betöltés után internet nélkül is működik.
 
@@ -13,9 +13,10 @@ Az app egyetlen statikus weboldal. Nincs szükség szerverre, fiókra vagy telep
   - **Várrom** egy dombtetőn, toronnyal és zászlóval.
   - **Őszi erdő** narancs és vörös lombbal, nagy **fenyves** és **lombos erdő** őzekkel, **sziklás fennsík**. Az erdők ritkásak, a fenyők alsó ágai lovasmagasság fölött kezdődnek, és a ló magától kikerüli a fatörzseket.
   - **Vadlovak rétje**, ahol öt vadló, köztük egy csikó legel.
-- **Állatok:** vadló-ménes (messziről is látszik, a térképen 🐴 jelzi, a kistérképen barna pöttyök; csak akkor ijed meg, ha vágtában rohansz közéjük, de ha lassan közelítesz és megállsz, odajönnek), őzek, nyulak, birkák, kacsák, madárrajok, egy sas a szurdok fölött és pillangók.
+- **Állatok:** vadló-ménes (messziről is látszik, a térképen 🐴 jelzi, a kistérképen barna pöttyök; csak akkor ijed meg, ha vágtában rohansz közéjük. Ha lépésben közelítesz, óvatosan követni kezdenek, és akár az istállóig is elkísérnek; ha ügetni kezdesz, sokáig állsz vagy eltávolodsz, a te nyomvonaladon visszamennek a rétjükre. Ha megállsz, egyikük kíváncsian odajön), őzek, nyulak, birkák, kacsák, madárrajok, egy sas a szurdok fölött és pillangók.
 - **Hat boksz, hat ló:** az istállóban 6 boksz van, a lovak a félig nyitott ajtók fölött kinéznek, az ajtókon névtábla. A gondozásnál a **Lovak** fülön új lovat hozhatsz (név, szőrszín, jegyek), és kiválaszthatod, melyikkel lovagolsz.
 - **Le- és felszállás:** megállva a **Leszállok** gombbal szállsz le. A ló ott marad és legel (a lovas nem megy át a lovakon), mellette állva visszaülhetsz, vagy **vezetheted** (követ). Az istállónál **Boxba** viheted, vagy kikötheted gondozásra. A kint hagyott lovakat a térkép mutatja.
+- **Pickup és lószállító:** az istálló mellett áll egy türkiz pickup, rákapcsolva egy kétállásos lószállító. Ha a lovad gyalog a lószállító mögé vezeted, a rámpa leereszkedik, és a ló felsétál rajta (két ló fér el). Beülhetsz a kocsiba, és vezetheted (tolatni is lehet, van duda, éjjel világít a lámpája). Megállás után kiszállsz, és a lószállító mögött kiveheted a lovat: kihátrál, megfordul, és már ülhetsz is rá. A menüből a kocsit vissza lehet küldeni az istálló mellé.
 - **Ház az istálló mellett:** nappali kanapéval és tévével, konyha hűtővel és étkezőasztallal, fürdőszoba káddal, hálószoba franciaággyal. Az ajtón egyszerűen be lehet sétálni, bent is a lovas mögül látsz, mint kint. Leülhetsz a kanapéra, megfürödhetsz, lefekhetsz az ágyba és **reggelig alhatsz** (a boxban álló lovak éjjel szénát és vizet kapnak). A hűtőből naponta alma és répa jár a lovaknak.
 - **Napszakok:** reggel, nappal, este, éjszaka (csillagok, hold, világító ablakok és lámpák), vagy folyamatosan telő idő (1 perc = 1 óra).
 - **Évszakok:** tavasz (friss zöld, virágzó almafák), nyár, ősz (színes lomb, hulló levelek), tél (hó, csupasz fák, havas fenyők és tetők, befagyott tó, hóesés).
@@ -43,6 +44,8 @@ Az app egyetlen statikus weboldal. Nincs szükség szerverre, fiókra vagy telep
 | Felszállás, vezetés | Állj a lovad mellé: **Felszállok** (ha nyereg és kantár van rajta) vagy **Vezetem**. |
 | Ló a boxba | Lovon vagy vezetve az istálló előtt: **Boxba**. A kikötőnél: **Kikötöm** (gondozás). |
 | Másik ló | Gondozásnál a **Lovak** fülön: **Kihozom**, vagy **＋ Új ló** (legfeljebb 6). |
+| Lószállító | Vezesd a lovat a lószállító mögé, és nyomd meg a **Beteszem a lószállítóba** gombot. Kivenni a lószállító mögött állva a **Kiveszem** gombbal lehet. |
+| Kocsi | A sofőrajtó mellett: **Beülök a kocsiba**. Húzd az ujjad arra, amerre menni szeretnél (lefelé húzva tolat), a bal oldali gomb a **Duda**. Megállva: **Kiszállok**. |
 | Ház | Gyalog sétálj be az ajtón, bent ugyanúgy jársz, mint kint. A bútorok mellett: **Leülök**, **Lefekszem**, **Fürdés**, **Hűtő**. |
 | Napszak, évszak | Menü (☰): a 🌗 és az évszak gomb váltogat. A menüből haza is lehet ugrani a házhoz. |
 

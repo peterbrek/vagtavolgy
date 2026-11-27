@@ -689,10 +689,10 @@ export class World {
     return best;
   }
   // kamera-szakasz: az első fal/épület metszése (0..1), y magasságban
-  segmentHit(ax, az, bx, bz, y, pad = 0.2) {
+  segmentHit(ax, az, bx, bz, y, pad = 0.2, skipVeh = false) {
     let best = 1; const mx = Math.min(ax, bx), Mx = Math.max(ax, bx), mz = Math.min(az, bz), Mz = Math.max(az, bz);
     for (const b of this.boxes) {
-      if (b.only === 'horse' || b.h + 0.05 < y) continue;
+      if (b.only === 'horse' || b.h + 0.05 < y || (skipVeh && b.veh)) continue;
       if (b.x + b.br + pad < mx || b.x - b.br - pad > Mx || b.z + b.br + pad < mz || b.z - b.br - pad > Mz) continue;
       const tl = (px, pz) => { const dx = px - b.x, dz = pz - b.z; return [dx * b.c - dz * b.s, dx * b.s + dz * b.c]; };
       const [a0, f0] = tl(ax, az), [a1, f1] = tl(bx, bz);
@@ -718,7 +718,8 @@ export class World {
     for (const b of this.boxes) {
       const dx = p.x - b.x, dz = p.z - b.z;
       if (Math.abs(dx) > b.br + r || Math.abs(dz) > b.br + r) continue;
-      if (b.only && b.only !== who) continue;
+      if (b.only && b.only !== who && !(who === 'car' && b.only === 'horse')) continue;
+      if (b.veh && who === 'car') continue;
       if (lift > (b.data ? b.h - 0.3 : b.h)) continue;
       const la = dx * b.c - dz * b.s, lf = dx * b.s + dz * b.c;
       const ca = clamp(la, -b.hw, b.hw), cf = clamp(lf, -b.hd, b.hd);
