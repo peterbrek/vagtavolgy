@@ -20,7 +20,7 @@ const C = (h) => new THREE.Color(h);
 const SKY = {
   night: { top: C('#060b1d'), hor: C('#17223a'), gnd: C('#0a0d14') },
   twi: { top: C('#38508c'), hor: C('#eea47a'), gnd: C('#4a4650') },
-  day: { top: C('#3f7fd0'), hor: C('#cfe2ee'), gnd: C('#9fb3a6') },
+  day: { top: C('#4f9ae0'), hor: C('#e6e8d6'), gnd: C('#a9b89a') },
 };
 const BASE_AZ = Math.atan2(0.55, 0.42);
 
@@ -108,23 +108,29 @@ export class Env {
     if (!mat || mat.userData.season) return; mat.userData.season = kind;
     const prev = mat.onBeforeCompile, U = this.U;
     const prevKey = prev && prev !== THREE.Material.prototype.onBeforeCompile ? 'p' : 'n';
-    const AUT = { dec: 'vSTH < 0.34 ? vec3(0.95,0.42,0.07) : vSTH < 0.67 ? vec3(0.8,0.14,0.04) : vec3(0.95,0.7,0.1)', birch: 'vec3(0.95,0.78,0.16)', apple: 'vec3(0.9,0.6,0.12)' };
     let frag;
     if (kind === 'ground') frag = `{ vec3 c = diffuseColor.rgb; float gr = clamp((c.g - max(c.r, c.b)) * 14.0, 0.0, 1.0);
         c = mix(c, c * uGrassTint, gr);
         float n = sin(vSWP.x * 0.37 + sin(vSWP.z * 0.21) * 2.0) * sin(vSWP.z * 0.41 + vSWP.x * 0.13);
-        c = mix(c, vec3(0.84, 0.87, 0.93), uSnow * smoothstep(0.72, 0.9, vSNy) * (0.9 + 0.1 * n));
+        c = mix(c, vec3(0.86, 0.89, 0.94), uSnow * smoothstep(0.72, 0.9, vSNy) * (0.9 + 0.1 * n));
         diffuseColor.rgb = c; }`;
-    else if (kind === 'snow') frag = `diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.86, 0.89, 0.94), uSnow * smoothstep(0.5, 0.82, vSNy));`;
-    else if (kind === 'needle') frag = `if (vMapUv.x < 0.88) diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.8, 0.85, 0.92), uSnow * smoothstep(0.3, 0.75, vSNy) * 0.8);`;
-    else frag = `if (vMapUv.x < 0.88) {
+    else if (kind === 'snow') frag = `diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.88, 0.91, 0.95), uSnow * smoothstep(0.5, 0.82, vSNy));`;
+    else if (kind === 'needle') frag = `if (vLeaf > 0.5) diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.86, 0.9, 0.95), uSnow * smoothstep(0.2, 0.55, vSNy));`;
+    else {
+      const AU = kind === 'birch' ? 'vec3(0.96, 0.78, 0.18)' : kind === 'apple' ? 'vec3(0.92, 0.62, 0.14)' : '(pk < 0.4 ? vec3(0.96, 0.5, 0.1) : pk < 0.72 ? vec3(0.86, 0.22, 0.07) : vec3(0.97, 0.76, 0.16))';
+      frag = `if (vLeaf > 0.5) {
         if (uBare > 0.5) discard;
+        float fruit = step(1.9, vLeaf);
+        if (fruit > 0.5 && uSpring > 0.5) discard;
         vec3 c = diffuseColor.rgb; float l = dot(c, vec3(0.3, 0.59, 0.11));
-        ${kind === 'apple' ? 'float fruit = step(c.g * 1.7, c.r); float bl = max(fruit, smoothstep(0.35, 0.6, sin(vMapUv.x * 38.0 + sin(vMapUv.y * 11.0)) * sin(vMapUv.y * 34.0 + vMapUv.x * 7.0) * 0.5 + 0.5));' : 'float fruit = 0.0;'}
-        ${AUT[kind] ? `c = mix(c, (${AUT[kind]}) * (0.18 + l * 2.6), uAut * (1.0 - fruit));` : ''}
-        ${kind !== 'aut' ? 'c = mix(c, c * vec3(0.95, 1.2, 0.75), uSpring);' : ''}
-        ${kind === 'apple' ? 'c = mix(c, vec3(0.95, 0.8, 0.86) * (0.35 + l * 2.4), uSpring * bl * 0.85);' : ''}
+        float fh = clamp((vLeaf - 1.0) / 0.45, 0.0, 1.0);
+        float pk = fract(vSTH * 3.7 + fh * 0.55);
+        vec3 au = ${AU} * clamp(l / 0.3, 0.7, 1.3);
+        ${kind === 'aut' ? 'c = au;' : 'c = mix(c, au, uAut * (1.0 - fruit));'}
+        ${kind !== 'aut' ? 'c = mix(c, c * vec3(1.0, 1.15, 0.72) + vec3(0.03, 0.04, 0.0), uSpring * (1.0 - fruit));' : ''}
+        ${kind === 'apple' ? 'c = mix(c, vec3(0.97, 0.82, 0.88), uSpring * step(0.55, fh) * (1.0 - fruit));' : ''}
         diffuseColor.rgb = c; }`;
+    }
     mat.onBeforeCompile = (sh, r) => {
       if (prev) prev.call(mat, sh, r);
       Object.assign(sh.uniforms, U);
@@ -194,7 +200,7 @@ export class Env {
     this.scene.environmentIntensity = 0.55 * (0.14 + 0.86 * D);
     // víz és felhők
     this.world.waterLight.value.setRGB(lerp(0.18, 1, D), lerp(0.22, 1, D), lerp(0.34, 1, D)).lerp(this.tmpC.set('#ffc8a0'), tw * 0.4);
-    for (const sp of W.clouds.children) { sp.material.color.set('#ffffff').lerp(this.tmpC.set('#ffbe96'), tw * 0.8).lerp(this.tmpC2.set('#2a3352'), N); }
+    W.cloudMat.color.set('#ffffff').lerp(this.tmpC.set('#ffbe96'), tw * 0.8).lerp(this.tmpC2.set('#2a3352'), N); W.cloudMat.emissive.copy(W.cloudMat.color); W.cloudMat.emissiveIntensity = lerp(0.12, 0.35, D);
     // esti fények
     const lit = smoothstep(0.25, 0.75, N + tw * 0.4);
     this.props.lampMat.emissiveIntensity = lit * 3.2; this.props.glassMat.emissiveIntensity = lit * 0.9;

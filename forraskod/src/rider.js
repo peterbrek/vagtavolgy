@@ -1,12 +1,13 @@
 import * as THREE from 'three';
 import { clamp, damp, lerp, smoothstep } from './noise.js';
 import { loft, limb } from './geom.js';
+import { flat as flat0 } from './lowpoly.js';
+const flat = (c, o = {}) => flat0(c, typeof o === 'number' ? { roughness: o } : o);
 
 export const SEAT = new THREE.Vector3(0, 0.47, 0.03);
 const DOWN = new THREE.Vector3(0, -1, 0);
 export const HAIR = { barna: '#5b3a22', szoke: '#d9b56a', fekete: '#1b1612', voros: '#a4482a' };
 
-const std = (c, r = 0.7) => new THREE.MeshStandardMaterial({ color: c, roughness: r });
 function cap(r, L, mat, parent, { sx = 1, sz = 1, y = null } = {}) {
   const g = new THREE.CapsuleGeometry(r, Math.max(0.01, L - r), 6, 12); g.translate(0, y == null ? -L / 2 : y, 0); g.scale(sx, 1, sz);
   const m = new THREE.Mesh(g, mat); m.castShadow = true; parent.add(m); return m;
@@ -27,90 +28,76 @@ export class Rider {
   constructor(horse) {
     this.horse = horse;
     this.root = new THREE.Group(); this.root.position.copy(SEAT); horse.body.add(this.root);
+    const skin = flat('#f4cfae', { roughness: 0.8, emissive: '#7a3b22', emissiveIntensity: 0.16 });
     this.m = {
-      skin: std('#f0c6a2', 0.6), jacket: std('#1f2f5c', 0.55), breeches: std('#f2efe6', 0.8),
-      boots: new THREE.MeshPhysicalMaterial({ color: '#17140f', roughness: 0.3, clearcoat: 0.8, clearcoatRoughness: 0.15 }),
-      helmet: new THREE.MeshPhysicalMaterial({ color: '#1d1d22', roughness: 0.35, clearcoat: 0.9, clearcoatRoughness: 0.12 }),
-      hair: std('#5b3a22', 0.6), glove: std('#2a2420', 0.6), dark: std('#0c0a09', 0.2), white: std('#f7f5f0', 0.7), lip: std('#c06a64', 0.5),
+      skin, jacket: flat('#1f2f5c', 0.7), breeches: flat('#f2efe6', { roughness: 0.85 }), boots: flat('#1b1713', { roughness: 0.45 }),
+      helmet: flat('#1d1d22', { roughness: 0.45 }), hair: flat('#5b3a22', { roughness: 0.7 }), glove: flat('#2a2420', { roughness: 0.7 }),
+      dark: flat('#1a1210', { roughness: 0.4 }), white: flat('#f7f5f0', { roughness: 0.7 }), lip: flat('#d0706a', { roughness: 0.6 }), blush: flat('#f0a093', { roughness: 0.8 }),
     };
     const M = this.m;
     const mesh = (g, m, parent, shadow = true) => { const x = new THREE.Mesh(g, m); x.castShadow = shadow; x.receiveShadow = true; parent.add(x); return x; };
-    const vloft = (rings, o = {}) => loft(rings.map(([y, rx, rz, z = 0]) => ({ p: [0, y, z], rx, ry: rz })), { up: [0, 0, 1], radial: 18, sub: 3, power: 2.2, ...o });
-    const ball = (r, m, parent, [x, y, z], [sx, sy, sz] = [1, 1, 1], seg = 12) => { const g = new THREE.SphereGeometry(r, seg, Math.round(seg * 0.75)); g.scale(sx, sy, sz); const k = mesh(g, m, parent); k.position.set(x, y, z); return k; };
+    const vloft = (rings, o = {}) => loft(rings.map(([y, rx, rz, z = 0]) => ({ p: [0, y, z], rx, ry: rz })), { up: [0, 0, 1], radial: 8, sub: 1, power: 2.2, ...o });
+    const ball = (r, m, parent, [x, y, z], [sx, sy, sz] = [1, 1, 1], det = 0) => { const g = new THREE.IcosahedronGeometry(r, det); g.scale(sx, sy, sz); const k = mesh(g, m, parent); k.position.set(x, y, z); return k; };
     // medence (lovaglónadrág)
     this.pelvis = new THREE.Group(); this.root.add(this.pelvis);
     mesh(vloft([[-0.1, 0.05, 0.04, -0.01], [-0.078, 0.13, 0.1, -0.012], [-0.02, 0.152, 0.115, -0.012], [0.05, 0.142, 0.1, -0.008], [0.085, 0.126, 0.09, -0.004]]), M.breeches, this.pelvis);
     // törzs (zakó)
     this.torso = new THREE.Group(); this.torso.position.set(0, 0.05, -0.02); this.pelvis.add(this.torso);
-    mesh(vloft([[-0.085, 0.157, 0.119, -0.01], [-0.03, 0.155, 0.115, -0.006], [0.06, 0.133, 0.097, 0.0], [0.14, 0.13, 0.095, 0.006], [0.24, 0.15, 0.105, 0.013],
-      [0.32, 0.162, 0.1, 0.006], [0.37, 0.168, 0.09, -0.004], [0.405, 0.134, 0.074, -0.008], [0.425, 0.06, 0.05, -0.005]]), M.jacket, this.torso);
-    for (const sx of [-1, 1]) ball(0.052, M.jacket, this.torso, [sx * 0.163, 0.368, -0.006], [1, 0.9, 1]);
-    { const c = new THREE.Mesh(new THREE.CylinderGeometry(0.038, 0.043, 0.1, 12), M.skin); c.position.y = 0.44; this.torso.add(c); }
-    { const col = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.066, 0.06, 16, 1, true), M.white); col.position.y = 0.418; this.torso.add(col); }
-    ball(0.05, M.white, this.torso, [0, 0.385, 0.072], [0.9, 1, 0.28]);
-    // fej
+    mesh(vloft([[-0.085, 0.157, 0.119, -0.01], [0.06, 0.133, 0.097, 0.0], [0.24, 0.15, 0.105, 0.013],
+      [0.34, 0.165, 0.098, 0.004], [0.405, 0.134, 0.074, -0.008], [0.425, 0.06, 0.05, -0.005]]), M.jacket, this.torso);
+    for (const sx of [-1, 1]) ball(0.055, M.jacket, this.torso, [sx * 0.163, 0.368, -0.006], [1, 0.9, 1]);
+    { const c = new THREE.Mesh(new THREE.CylinderGeometry(0.038, 0.043, 0.1, 6), M.skin); c.position.y = 0.44; this.torso.add(c); }
+    { const col = new THREE.Mesh(new THREE.CylinderGeometry(0.052, 0.068, 0.06, 8, 1, true), M.white); col.position.y = 0.418; this.torso.add(col); }
+    // fej (kicsit nagyobb, kedvesebb arányok)
     this.head = new THREE.Group(); this.head.position.set(0, 0.47, 0); this.torso.add(this.head);
-    ball(0.09, M.skin, this.head, [0, 0.082, 0], [0.86, 1.0, 0.93], 18);
-    ball(0.056, M.skin, this.head, [0, 0.036, 0.022], [0.95, 0.85, 0.9], 14);
+    const HG = new THREE.Group(); HG.scale.setScalar(1.08); HG.position.y = -0.004; this.head.add(HG);
+    ball(0.095, M.skin, HG, [0, 0.07, 0.004], [0.9, 1.05, 0.95], 1);
     for (const sx of [-1, 1]) {
-      ball(0.017, M.skin, this.head, [sx * 0.077, 0.074, -0.004], [0.5, 1, 0.8], 8);
-      ball(0.013, M.white, this.head, [sx * 0.03, 0.088, 0.072], [1, 0.75, 0.45], 8);
-      ball(0.0085, M.dark, this.head, [sx * 0.03, 0.088, 0.077], [1, 1, 0.6], 8);
-      const br = mesh(new THREE.BoxGeometry(0.026, 0.005, 0.006), M.hair, this.head, false); br.position.set(sx * 0.031, 0.107, 0.076); br.rotation.z = -sx * 0.12;
+      ball(0.018, M.skin, HG, [sx * 0.08, 0.07, -0.004], [0.5, 1, 0.8]);
+      ball(0.013, M.dark, HG, [sx * 0.032, 0.074, 0.087], [0.8, 1.25, 0.6]);
+      ball(0.013, M.blush, HG, [sx * 0.05, 0.05, 0.076], [1, 0.55, 0.4]);
+      const br = mesh(new THREE.BoxGeometry(0.024, 0.005, 0.006), M.hair, HG, false); br.position.set(sx * 0.032, 0.094, 0.088); br.rotation.z = -sx * 0.12;
     }
-    ball(0.011, M.skin, this.head, [0, 0.07, 0.085], [0.8, 1.1, 1], 8);
-    ball(0.02, this.m.lip, this.head, [0, 0.046, 0.072], [1, 0.3, 0.45], 10);
+    ball(0.01, M.skin, HG, [0, 0.058, 0.094], [0.8, 1.0, 1]);
+    { const mo = mesh(new THREE.BoxGeometry(0.022, 0.005, 0.006), M.lip, HG, false); mo.position.set(0, 0.037, 0.086); }
     // sisak ellenzővel és szíjjal
-    this.helmetParts = [];
-    { const hl = new THREE.Group(); this.head.add(hl); this.helmetG = hl;
-      const hg = new THREE.SphereGeometry(0.106, 22, 12, 0, Math.PI * 2, 0, Math.PI * 0.55); hg.scale(1, 0.96, 1.08); const h = mesh(hg, M.helmet, hl); h.position.set(0, 0.09, -0.006);
-      const rim = mesh(new THREE.TorusGeometry(0.104, 0.006, 6, 28), M.helmet, hl); rim.rotation.x = Math.PI / 2; rim.scale.set(1, 1.08, 1); rim.position.set(0, 0.083, -0.006);
-      const pk = new THREE.CylinderGeometry(0.075, 0.075, 0.007, 18, 1, false, -Math.PI / 2, Math.PI); pk.scale(1, 1, 0.62);
-      const peak = mesh(pk, M.helmet, hl); peak.position.set(0, 0.093, 0.072); peak.rotation.x = 0.28;
-      for (const sx of [-1, 1]) { const st = mesh(new THREE.BoxGeometry(0.007, 0.1, 0.012), M.dark, hl, false); st.position.set(sx * 0.074, 0.04, 0.02); st.rotation.z = sx * 0.12; }
-      const chin = mesh(new THREE.BoxGeometry(0.1, 0.007, 0.014), M.dark, hl, false); chin.position.set(0, -0.004, 0.035); }
+    { const hl = new THREE.Group(); hl.position.y = 0.012; HG.add(hl); this.helmetG = hl;
+      const hg = new THREE.SphereGeometry(0.108, 10, 4, 0, Math.PI * 2, 0, Math.PI * 0.55); hg.scale(1, 0.96, 1.08); const h = mesh(hg, M.helmet, hl); h.position.set(0, 0.09, -0.006);
+      const rim = mesh(new THREE.TorusGeometry(0.105, 0.008, 3, 10), M.helmet, hl); rim.rotation.x = Math.PI / 2; rim.scale.set(1, 1.08, 1); rim.position.set(0, 0.083, -0.006);
+      const pk = new THREE.CylinderGeometry(0.075, 0.075, 0.009, 7, 1, false, -Math.PI / 2, Math.PI); pk.scale(1, 1, 0.62);
+      const peak = mesh(pk, M.helmet, hl); peak.position.set(0, 0.093, 0.074); peak.rotation.x = 0.28;
+      for (const sx of [-1, 1]) { const st = mesh(new THREE.BoxGeometry(0.008, 0.1, 0.012), M.dark, hl, false); st.position.set(sx * 0.074, 0.04, 0.02); st.rotation.z = sx * 0.12; }
+      const chin = mesh(new THREE.BoxGeometry(0.09, 0.006, 0.01), M.dark, hl, false); chin.position.set(0, -0.018, 0.03); }
     // haj a fej tetején (sisak nélkül látszik)
-    { const tg = new THREE.SphereGeometry(0.097, 20, 10, 0, Math.PI * 2, 0, Math.PI * 0.5); tg.scale(0.93, 1.0, 1.04); const t = mesh(tg, M.hair, this.head); t.position.set(0, 0.086, -0.01); t.rotation.x = -0.25; t.visible = false; this.hairTop = t;
-      const fr = new THREE.SphereGeometry(0.093, 16, 6, Math.PI * 0.15, Math.PI * 0.7, Math.PI * 0.3, Math.PI * 0.12); const f = mesh(fr, M.hair, this.head); f.position.set(0, 0.088, 0.0); f.rotation.y = Math.PI; f.visible = false; this.hairFringe = f; }
+    { const tg = new THREE.SphereGeometry(0.098, 9, 4, 0, Math.PI * 2, 0, Math.PI * 0.5); tg.scale(0.93, 1.0, 1.04); const t = mesh(tg, M.hair, HG); t.position.set(0, 0.086, -0.01); t.rotation.x = -0.25; t.visible = false; this.hairTop = t;
+      const fr = new THREE.SphereGeometry(0.095, 7, 2, Math.PI * 0.15, Math.PI * 0.7, Math.PI * 0.3, Math.PI * 0.12); const f = mesh(fr, M.hair, HG); f.position.set(0, 0.088, 0.0); f.rotation.y = Math.PI; f.visible = false; this.hairFringe = f; }
     // haj
-    { const hh = new THREE.SphereGeometry(0.094, 16, 10, 0, Math.PI * 2, Math.PI * 0.4, Math.PI * 0.32); const k = mesh(hh, M.hair, this.head); k.position.set(0, 0.078, -0.014); }
-    this.pony = new THREE.Group(); this.pony.position.set(0, 0.07, -0.098); this.head.add(this.pony);
-    cap(0.024, 0.17, M.hair, this.pony, { sx: 1.2 });
-    ball(0.04, M.hair, this.pony, [0, 0, 0]);
-    {
-      const tex = horse.hairTex; const hm = new THREE.MeshStandardMaterial({ map: tex, alphaTest: 0.38, side: THREE.DoubleSide, roughness: 0.5 });
-      this.hairCardMat = hm; const pos = [], uv = [], nor = [], idx = [];
-      for (let k = 0; k < 4; k++) {
-        const a = (k / 4) * Math.PI, dx = Math.cos(a), dz = Math.sin(a), b = pos.length / 3;
-        for (let q = 0; q <= 3; q++) { const t = q / 3, y = 0.02 - t * 0.26, w = 0.035 + Math.sin(t * Math.PI) * 0.02;
-          pos.push(dx * w, y, dz * w, -dx * w, y, -dz * w); nor.push(dx, 0, dz, -dx, 0, -dz); uv.push(0.1, 1 - t, 0.6, 1 - t);
-          if (q) { const o = b + (q - 1) * 2; idx.push(o, o + 2, o + 1, o + 1, o + 2, o + 3); } }
-      }
-      const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3)); g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2)); g.setIndex(idx);
-      const m = new THREE.Mesh(g, hm); m.castShadow = true; this.pony.add(m);
-    }
+    { const hh = new THREE.SphereGeometry(0.096, 9, 4, 0, Math.PI * 2, Math.PI * 0.4, Math.PI * 0.32); const k = mesh(hh, M.hair, HG); k.position.set(0, 0.078, -0.014); }
+    this.pony = new THREE.Group(); this.pony.position.set(0, 0.075, -0.106); this.head.add(this.pony);
+    ball(0.04, M.hair, this.pony, [0, 0, 0], [1.1, 1, 1]);
+    mesh(limb(0.27, [[0, 0.04, 0.034, 0], [0.3, 0.048, 0.04, 0.004], [0.7, 0.034, 0.03, 0.006], [1, 0.008, 0.008, 0]], 6, 1), M.hair, this.pony);
     // karok
-    const UA = [[0, 0.05, 0.05], [0.12, 0.05, 0.05], [0.55, 0.043, 0.042], [1, 0.037, 0.036]], FA = [[0, 0.038, 0.037], [0.4, 0.037, 0.034], [0.85, 0.031, 0.028], [1, 0.029, 0.026]];
+    const UA = [[0, 0.052, 0.052], [0.5, 0.045, 0.044], [1, 0.039, 0.038]], FA = [[0, 0.04, 0.039], [0.5, 0.037, 0.034], [1, 0.03, 0.027]];
     this.arms = [];
     for (const s of [-1, 1]) {
       const plane = new THREE.Group(); plane.position.set(s * 0.165, 0.36, 0.0); this.torso.add(plane);
-      const up = new THREE.Group(); plane.add(up); mesh(limb(0.28, UA.map(([t, a, b]) => [t, a, b, 0]), 12), M.jacket, up);
-      const fo = new THREE.Group(); fo.position.y = -0.27; up.add(fo); mesh(limb(0.26, FA.map(([t, a, b]) => [t, a, b, 0]), 12), M.jacket, fo);
+      const up = new THREE.Group(); plane.add(up); mesh(limb(0.28, UA.map(([t, a, b]) => [t, a, b, 0]), 6, 1), M.jacket, up);
+      const fo = new THREE.Group(); fo.position.y = -0.27; up.add(fo); mesh(limb(0.26, FA.map(([t, a, b]) => [t, a, b, 0]), 6, 1), M.jacket, fo);
       const hand = new THREE.Group(); hand.position.y = -0.25; fo.add(hand);
-      ball(0.033, M.glove, hand, [0, -0.028, 0], [0.75, 1.05, 1.0], 10);
-      ball(0.028, M.glove, hand, [0, -0.058, 0.012], [0.8, 0.9, 1.0], 10);
-      const th = mesh(new THREE.CapsuleGeometry(0.011, 0.03, 4, 8), M.glove, hand); th.position.set(s * -0.02, -0.035, 0.022); th.rotation.x = 0.6;
+      ball(0.035, M.glove, hand, [0, -0.03, 0], [0.75, 1.1, 1.0]);
+      ball(0.03, M.glove, hand, [0, -0.06, 0.012], [0.8, 0.9, 1.0]);
+      const th = mesh(new THREE.BoxGeometry(0.02, 0.045, 0.02), M.glove, hand); th.position.set(s * -0.02, -0.035, 0.022); th.rotation.x = 0.6;
       this.arms.push({ s, plane, up, fo, hand });
     }
     // lábak
-    const TH = [[0, 0.078, 0.084, 0], [0.12, 0.075, 0.08, 0.005], [0.45, 0.067, 0.07, 0.004], [0.8, 0.056, 0.058, 0], [1, 0.052, 0.054, 0]];
-    const BO = [[-0.035, 0.059, 0.063, 0], [0.04, 0.06, 0.064, 0.002], [0.3, 0.054, 0.062, -0.012], [0.7, 0.042, 0.048, -0.004], [1, 0.037, 0.043, 0]];
-    const footGeo = loft([{ p: [0, -0.012, -0.048], rx: 0.032, ry: 0.035 }, { p: [0, -0.02, 0.0], rx: 0.038, ry: 0.038 }, { p: [0, -0.032, 0.08], rx: 0.036, ry: 0.026 }, { p: [0, -0.037, 0.13], rx: 0.022, ry: 0.017 }, { p: [0, -0.039, 0.15], rx: 0.006, ry: 0.006 }], { up: [0, 1, 0], radial: 12, sub: 3 });
+    const TH = [[0, 0.08, 0.086, 0], [0.4, 0.069, 0.072, 0.004], [0.8, 0.057, 0.059, 0], [1, 0.053, 0.055, 0]];
+    const BO = [[-0.035, 0.061, 0.065, 0], [0.3, 0.056, 0.064, -0.012], [0.7, 0.044, 0.05, -0.004], [1, 0.039, 0.045, 0]];
+    const footGeo = loft([{ p: [0, -0.012, -0.048], rx: 0.034, ry: 0.036 }, { p: [0, -0.022, 0.02], rx: 0.04, ry: 0.036 }, { p: [0, -0.034, 0.1], rx: 0.034, ry: 0.024 }, { p: [0, -0.039, 0.15], rx: 0.008, ry: 0.008 }], { up: [0, 1, 0], radial: 6, sub: 1 });
     this.legs = [];
     for (const s of [-1, 1]) {
       const plane = new THREE.Group(); this.root.add(plane);
-      const th = new THREE.Group(); plane.add(th); mesh(limb(0.44, TH, 14), M.breeches, th);
-      const kn = new THREE.Group(); kn.position.y = -0.43; th.add(kn); mesh(limb(0.41, BO, 14), M.boots, kn);
+      const th = new THREE.Group(); plane.add(th); mesh(limb(0.44, TH, 7, 1), M.breeches, th);
+      const kn = new THREE.Group(); kn.position.y = -0.43; th.add(kn); mesh(limb(0.41, BO, 7, 1), M.boots, kn);
       const ft = new THREE.Group(); ft.position.y = -0.4; kn.add(ft);
       mesh(footGeo, M.boots, ft);
       const heel = mesh(new THREE.BoxGeometry(0.05, 0.03, 0.04), M.boots, ft); heel.position.set(0, -0.052, -0.03);

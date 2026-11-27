@@ -1,6 +1,8 @@
 import * as THREE from 'three';
 import { makeNoise2D, fbm, mulberry32, hash2, clamp, lerp, smoothstep } from './noise.js';
 import { canvasTexture } from './geom.js';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
+import { hashF, jitter } from './lowpoly.js';
 import { makeTreeAssets } from './trees.js';
 
 export const SIZE = 1000, HALF = 500, SEG = 320, CELL = SIZE / SEG, G = SEG + 1;
@@ -36,12 +38,12 @@ const PATH_A = [[-6, 34], [-55, 92], [-115, 128], [-185, 148], [-255, 205], [-24
 const PATH_B = [[-212, -165], [-128, -105], [-62, -38]];
 
 const COL = {
-  grassA: new THREE.Color('#4f7f2c'), grassB: new THREE.Color('#6f9a3a'), dry: new THREE.Color('#a39f55'),
-  forest: new THREE.Color('#3d6527'), dirt: new THREE.Color('#8a6c4a'), dirt2: new THREE.Color('#9b7d58'),
-  sand: new THREE.Color('#cdbb8c'), mud: new THREE.Color('#6b5f45'), rock: new THREE.Color('#7f7b74'),
-  rock2: new THREE.Color('#999389'), snow: new THREE.Color('#f2f4f7'), litter: new THREE.Color('#8f6a2e'),
-  birchG: new THREE.Color('#78a443'), gravel: new THREE.Color('#a99a80'), soil: new THREE.Color('#6e5a40'),
-  strata: [new THREE.Color('#b98a5e'), new THREE.Color('#9e6b45'), new THREE.Color('#c9a27a'), new THREE.Color('#8d7a66')],
+  grassA: new THREE.Color('#6fa846'), grassB: new THREE.Color('#9cc658'), dry: new THREE.Color('#c2b968'),
+  forest: new THREE.Color('#4f8c3c'), dirt: new THREE.Color('#d6b983'), dirt2: new THREE.Color('#e2c895'),
+  sand: new THREE.Color('#e6d3a0'), mud: new THREE.Color('#8f7c58'), rock: new THREE.Color('#8f8a82'),
+  rock2: new THREE.Color('#aaa59b'), snow: new THREE.Color('#f2f4f7'), litter: new THREE.Color('#c0803a'),
+  birchG: new THREE.Color('#93c459'), gravel: new THREE.Color('#bdb096'), soil: new THREE.Color('#82684a'),
+  strata: [new THREE.Color('#cf9a68'), new THREE.Color('#b47850'), new THREE.Color('#dcb489'), new THREE.Color('#a08a72')],
 };
 
 const nA = makeNoise2D(11), nB = makeNoise2D(23), nC = makeNoise2D(37), nD = makeNoise2D(53), nE = makeNoise2D(71);
@@ -294,15 +296,16 @@ export class World {
     g.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
     g.setIndex(new THREE.BufferAttribute(idx, 1));
     g.computeVertexNormals();
-    const detail = canvasTexture(256, 256, (ctx, w, h) => {
-      const img = ctx.createImageData(w, h); const r = mulberry32(5);
-      for (let i = 0; i < w * h; i++) { const v = 200 + r() * 55; img.data[i * 4] = v; img.data[i * 4 + 1] = v; img.data[i * 4 + 2] = v; img.data[i * 4 + 3] = 255; }
-      ctx.putImageData(img, 0, 0);
-      for (let i = 0; i < 900; i++) { ctx.fillStyle = `rgba(${r() < 0.5 ? '255,255,235' : '60,70,40'},${0.05 + r() * 0.08})`; const s = 1 + r() * 4; ctx.fillRect(r() * w, r() * h, s, s * (0.5 + r())); }
-    });
-    detail.wrapS = detail.wrapT = THREE.RepeatWrapping;
-    detail.anisotropy = 4;
-    const mat = new THREE.MeshLambertMaterial({ vertexColors: true, map: detail });
+    g.deleteAttribute('uv');
+    // lapos árnyalás + laponként enyhén eltérő szín (a rács háromszögei szerint)
+    const mat = new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true });
+    mat.onBeforeCompile = (sh) => {
+      sh.vertexShader = 'varying vec3 vTW;\n' + sh.vertexShader.replace('#include <begin_vertex>', '#include <begin_vertex>\n vTW = (modelMatrix * vec4(transformed, 1.0)).xyz;');
+      sh.fragmentShader = 'varying vec3 vTW;\n' + sh.fragmentShader.replace('#include <color_fragment>', `#include <color_fragment>
+        { vec2 gq = (vTW.xz + ${HALF.toFixed(1)}) / ${CELL.toFixed(5)}; vec2 ci = floor(gq); vec2 fq = fract(gq); float tri = step(1.0, fq.x + fq.y);
+          float rq = fract(sin(dot(ci + vec2(tri * 0.37, tri * 0.71), vec2(12.9898, 78.233))) * 43758.5453);
+          diffuseColor.rgb *= 0.92 + rq * 0.16; }`);
+    };
     this.terrain = new THREE.Mesh(g, mat);
     this.terrain.receiveShadow = true;
     this.group.add(this.terrain);
@@ -311,36 +314,38 @@ export class World {
   // ---------- víz: tó, patak, medence, vízesés ----------
   waterMaterial(lake) {
     const u = {
-      uTime: this.waterUniforms.uTime, uSun: { value: SUN_DIR }, uDeep: { value: new THREE.Color('#1d4f6e') },
-      uShallow: { value: new THREE.Color(lake ? '#4f8f8c' : '#5fa3a0') }, uSky: { value: new THREE.Color('#b8d6ee') },
+      uTime: this.waterUniforms.uTime, uSun: { value: SUN_DIR }, uDeep: { value: new THREE.Color('#2f84a8') },
+      uShallow: { value: new THREE.Color(lake ? '#5cc0c2' : '#6cc8c8') }, uSky: { value: new THREE.Color('#cfe6f2') },
       uLake: { value: lake ? new THREE.Vector3(LAKE.x, LAKE.z, LAKE.r) : new THREE.Vector3(9999, 9999, 1) },
       uIce: { value: 0 }, uLight: this.waterLight || (this.waterLight = { value: new THREE.Color(1, 1, 1) }),
     };
+    // low-poly víz: hullámzó, szögletes lapok, lapos árnyalással
     const mat = new THREE.ShaderMaterial({
       transparent: true, fog: true, depthWrite: false,
       uniforms: THREE.UniformsUtils.merge([THREE.UniformsLib.fog, u]),
-      vertexShader: `varying vec3 vW;
+      vertexShader: `uniform float uTime, uIce; varying vec3 vW;
         #include <fog_pars_vertex>
-        void main(){ vec4 w = modelMatrix*vec4(position,1.0); vW = w.xyz; vec4 mvPosition = viewMatrix*w; gl_Position = projectionMatrix*mvPosition;
+        void main(){ vec4 w = modelMatrix*vec4(position,1.0); float t = uTime;
+          w.y += (sin(w.x*0.33 + t*1.1) + sin(w.z*0.41 - t*0.9) + 0.6*sin((w.x + w.z)*0.85 + t*1.7)) * 0.05 * (1.0 - uIce);
+          vW = w.xyz; vec4 mvPosition = viewMatrix*w; gl_Position = projectionMatrix*mvPosition;
         #include <fog_vertex>
         }`,
       fragmentShader: `uniform float uTime, uIce; uniform vec3 uSun, uDeep, uShallow, uSky, uLake, uLight; varying vec3 vW;
         #include <fog_pars_fragment>
-        float wh(vec2 p){ float t=uTime; return sin(p.x*0.6+t*1.3)*0.5+sin(p.y*0.7-t*1.1)*0.5+sin((p.x+p.y)*1.6+t*2.3)*0.25+sin((p.x-p.y)*2.9-t*2.9)*0.12+sin(p.x*5.1+p.y*3.3+t*4.0)*0.05; }
         void main(){
-          vec2 p = vW.xz; float e = 0.15;
-          float h0 = wh(p); vec3 n = normalize(vec3(-(wh(p+vec2(e,0.))-h0)/e*0.08, 1.0, -(wh(p+vec2(0.,e))-h0)/e*0.08));
+          vec3 n = normalize(cross(dFdx(vW), dFdy(vW))); if (n.y < 0.0) n = -n;
           vec3 v = normalize(cameraPosition - vW);
-          float fr = pow(1.0 - max(dot(n, v), 0.0), 4.0);
-          float dc = distance(p, uLake.xy); float deep = smoothstep(uLake.z*0.95, uLake.z*0.35, dc);
+          float fr = pow(1.0 - max(dot(n, v), 0.0), 3.0);
+          float dc = distance(vW.xz, uLake.xy); float deep = smoothstep(uLake.z*0.95, uLake.z*0.3, dc);
           vec3 col = mix(uShallow, uDeep, deep);
-          col = mix(col, uSky, 0.12 + fr*0.75);
-          float sp = pow(max(dot(reflect(-uSun, n), v), 0.0), 180.0);
-          col += vec3(1.0,0.95,0.85)*sp*2.5*(1.0-uIce);
-          float a = clamp(0.62 + deep*0.3 + fr*0.3, 0.0, 0.97);
-          if (uIce > 0.0) { float cr = smoothstep(0.92, 1.0, abs(sin(p.x*0.9 + sin(p.y*0.37)*3.0))) * 0.25 + smoothstep(0.95, 1.0, abs(sin(p.y*1.3 + p.x*0.21))) * 0.2;
-            vec3 ice = mix(vec3(0.72,0.83,0.9), vec3(0.93,0.96,0.99), smoothstep(uLake.z*0.95, uLake.z*0.6, dc)*0.5 + fr*0.4) - cr*0.15;
-            col = mix(col, ice, uIce); a = mix(a, 0.96, uIce); }
+          col = mix(col, uSky, 0.08 + fr*0.45);
+          col *= 0.82 + 0.3*max(dot(n, uSun), 0.0);
+          float sp = pow(max(dot(reflect(-uSun, n), v), 0.0), 40.0);
+          col += vec3(1.0,0.96,0.86)*sp*0.55*(1.0-uIce);
+          float a = clamp(0.78 + deep*0.17 + fr*0.2, 0.0, 0.97);
+          if (uIce > 0.0) { float cr = step(0.93, fract(sin(dot(floor(vW.xz*0.45), vec2(12.9898,78.233)))*43758.5453));
+            vec3 ice = mix(vec3(0.74,0.86,0.93), vec3(0.93,0.96,0.99), smoothstep(uLake.z*0.95, uLake.z*0.6, dc)*0.5 + fr*0.4) * (0.94 + 0.08*max(dot(n, uSun), 0.0)) - cr*0.08;
+            col = mix(col, ice, uIce); a = mix(a, 0.97, uIce); }
           col *= uLight;
           gl_FragColor = vec4(col, a);
           #include <colorspace_fragment>
@@ -350,13 +355,29 @@ export class World {
     for (const k in u) mat.uniforms[k] = u[k];
     return mat;
   }
+  // szabálytalan háromszögekből álló kör alakú vízfelület
+  waterDisk(R, cell) {
+    const n = Math.ceil((2 * R) / cell), r = mulberry32(Math.round(R * 7)), pos = [], idx = [];
+    for (let j = 0; j <= n; j++) for (let i = 0; i <= n; i++) {
+      let x = -R + i * cell, z = -R + j * cell;
+      if (i > 0 && i < n && j > 0 && j < n) { x += (r() - 0.5) * cell * 0.6; z += (r() - 0.5) * cell * 0.6; }
+      pos.push(x, 0, z);
+    }
+    const W = n + 1, in_ = (k) => Math.hypot(pos[k * 3], pos[k * 3 + 2]) < R + cell * 0.7;
+    for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) {
+      const A = j * W + i, B = (j + 1) * W + i, C = j * W + i + 1, D = (j + 1) * W + i + 1;
+      if ((i + j) % 2) { if (in_(A) && in_(B) && in_(C)) idx.push(A, B, C); if (in_(C) && in_(B) && in_(D)) idx.push(C, B, D); }
+      else { if (in_(A) && in_(B) && in_(D)) idx.push(A, B, D); if (in_(A) && in_(D) && in_(C)) idx.push(A, D, C); }
+    }
+    const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setIndex(idx); g.computeBoundingSphere();
+    return g;
+  }
   buildWater() {
     this.waterUniforms = { uTime: { value: 0 } };
-    const geo = new THREE.CircleGeometry(LAKE.r + 40, 64); geo.rotateX(-Math.PI / 2);
-    this.water = new THREE.Mesh(geo, this.waterMaterial(true)); this.lakeMat = this.water.material;
+    this.water = new THREE.Mesh(this.waterDisk(LAKE.r + 40, 3.2), this.waterMaterial(true)); this.lakeMat = this.water.material;
     this.water.position.set(LAKE.x, WATER, LAKE.z); this.water.renderOrder = 2;
     this.group.add(this.water);
-    // patak: szalag a meder fölött
+    // patak: három csúcs széles szalag a meder fölött
     const cm = this.waterMaterial(false);
     const pos = [], idx = [], pts = this.creekPts, W = 2.3;
     let lastY = 99;
@@ -365,14 +386,14 @@ export class World {
       const tx = b.x - a.x, tz = b.z - a.z, l = Math.hypot(tx, tz) || 1, nx = -tz / l, nz = tx / l;
       let y = this.heightAt(p.x, p.z) + 0.42; y = Math.min(y, lastY + 0.05); lastY = y;
       if (Math.hypot(p.x - LAKE.x, p.z - LAKE.z) < LAKE.r + 4) y = Math.max(WATER, y);
-      pos.push(p.x + nx * W, y, p.z + nz * W, p.x - nx * W, y, p.z - nz * W);
-      if (i > 0) { const o = (i - 1) * 2; idx.push(o, o + 2, o + 1, o + 1, o + 2, o + 3); }
+      const off = (i % 2 ? 0.35 : -0.35);
+      pos.push(p.x + nx * W, y, p.z + nz * W, p.x + nx * off, y, p.z + nz * off, p.x - nx * W, y, p.z - nz * W);
+      if (i > 0) { const o = (i - 1) * 3; idx.push(o, o + 3, o + 1, o + 1, o + 3, o + 4, o + 1, o + 4, o + 2, o + 2, o + 4, o + 5); }
     });
     const cg = new THREE.BufferGeometry(); cg.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); cg.setIndex(idx); cg.computeBoundingSphere();
     const creek = new THREE.Mesh(cg, cm); creek.renderOrder = 2; this.group.add(creek);
     // medence
-    const pg = new THREE.CircleGeometry(6.2, 32); pg.rotateX(-Math.PI / 2);
-    const pool = new THREE.Mesh(pg, cm); pool.position.set(this.pool.x, this.heightAt(this.pool.x, this.pool.z) + 0.75, this.pool.z); pool.renderOrder = 2; this.group.add(pool);
+    const pool = new THREE.Mesh(this.waterDisk(6.2, 1.6), cm); pool.position.set(this.pool.x, this.heightAt(this.pool.x, this.pool.z) + 0.75, this.pool.z); pool.renderOrder = 2; this.group.add(pool);
     this.poolY = pool.position.y;
     // vízesés a sziklafalon
     const t = WATERFALL_T, n = this.canyonNormal(t), c0 = this.canyonCurve.getPointAt(t), side = new THREE.Vector3(-n.z, 0, n.x);
@@ -433,26 +454,23 @@ export class World {
     this.sky = new THREE.Mesh(new THREE.SphereGeometry(900, 32, 16), mat);
     this.sky.frustumCulled = false; this.sky.renderOrder = -1;
     this.scene.add(this.sky);
-    const cloudTex = (seed) => canvasTexture(256, 128, (ctx, w, h) => {
-      const r = mulberry32(seed);
-      const puffs = [];
-      for (let i = 0; i < 22; i++) { const t = r(); puffs.push([w * (0.15 + t * 0.7), h * (0.62 - Math.sin(t * Math.PI) * (0.18 + r() * 0.16)), 14 + Math.sin(t * Math.PI) * (16 + r() * 18)]); }
-      for (const [x, y, rad] of puffs) { const g = ctx.createRadialGradient(x, y, 0, x, y, rad); g.addColorStop(0, 'rgba(255,255,255,1)'); g.addColorStop(0.72, 'rgba(255,255,255,0.92)'); g.addColorStop(1, 'rgba(255,255,255,0)'); ctx.fillStyle = g; ctx.beginPath(); ctx.arc(x, y, rad, 0, Math.PI * 2); ctx.fill(); }
-      ctx.globalCompositeOperation = 'source-atop';
-      const sh = ctx.createLinearGradient(0, h * 0.3, 0, h * 0.8); sh.addColorStop(0, 'rgba(255,250,240,0)'); sh.addColorStop(1, 'rgba(150,165,190,0.55)');
-      ctx.fillStyle = sh; ctx.fillRect(0, 0, w, h);
-      ctx.globalCompositeOperation = 'source-over';
-    });
-    const ctexs = [cloudTex(9), cloudTex(19), cloudTex(29)];
+    // low-poly felhők: lapított ikozaéder-csomók
     const r = mulberry32(17);
-    this.clouds = new THREE.Group();
-    for (let i = 0; i < 20; i++) {
-      const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: ctexs[i % 3], fog: false, depthWrite: false, transparent: true, opacity: 0.85 + r() * 0.15 }));
-      const a = r() * Math.PI * 2, d = 280 + r() * 440;
-      sp.position.set(Math.cos(a) * d, 120 + r() * 100, Math.sin(a) * d);
-      const sc = 130 + r() * 150; sp.scale.set(sc, sc * 0.5, 1);
-      this.clouds.add(sp);
+    this.cloudMat = new THREE.MeshLambertMaterial({ color: '#ffffff', emissive: '#ffffff', emissiveIntensity: 0.35, flatShading: true, fog: false });
+    this.clouds = new THREE.Group(); const all = [];
+    for (let i = 0; i < 22; i++) {
+      const parts = [], n = 4 + Math.floor(r() * 3), sc = 13 + r() * 10;
+      for (let k = 0; k < n; k++) {
+        const g = new THREE.IcosahedronGeometry(sc * (0.75 + r() * 0.55) * (k === 0 || k === n - 1 ? 0.75 : 1), 0);
+        g.scale(1, 0.58, 0.85); g.rotateY(r() * 3); g.translate((k - (n - 1) / 2) * sc * 1.15 + (r() - 0.5) * sc * 0.4, (r() - 0.3) * sc * 0.35, (r() - 0.5) * sc * 0.6);
+        parts.push(g.index ? g.toNonIndexed() : g);
+      }
+      const cg = mergeGeometries(parts);
+      const a = r() * Math.PI * 2, d = 300 + r() * 420;
+      cg.rotateY(-a + Math.PI / 2 + (r() - 0.5) * 0.6); cg.translate(Math.cos(a) * d, 120 + r() * 100, Math.sin(a) * d);
+      all.push(cg);
     }
+    const cm = new THREE.Mesh(mergeGeometries(all), this.cloudMat); cm.frustumCulled = false; this.clouds.add(cm);
     this.scene.add(this.clouds);
   }
 
@@ -596,33 +614,28 @@ export class World {
 
   // ---------- levendulamező ----------
   buildLavender() {
-    const tex = canvasTexture(128, 128, (ctx, w, h) => {
-      const r = mulberry32(61);
-      for (let i = 0; i < 70; i++) { // levelek
-        ctx.strokeStyle = `hsl(${95 + r() * 25},${25 + r() * 15}%,${28 + r() * 14}%)`; ctx.lineWidth = 2;
-        const x = 20 + r() * 88; ctx.beginPath(); ctx.moveTo(64 + (x - 64) * 0.3, 128); ctx.lineTo(x, 70 + r() * 30); ctx.stroke();
-      }
-      for (let i = 0; i < 26; i++) { // virágszárak
-        const x = 14 + r() * 100, top = 8 + r() * 26, base = 70 + r() * 10;
-        ctx.strokeStyle = '#5f7a45'; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.moveTo(64 + (x - 64) * 0.4, 128); ctx.lineTo(x, top + 18); ctx.stroke();
-        for (let k = 0; k < 7; k++) { ctx.fillStyle = `hsl(${262 + r() * 18},${45 + r() * 20}%,${48 + r() * 16}%)`; ctx.beginPath(); ctx.ellipse(x + (r() - 0.5) * 3, top + k * 3.4, 3.2, 2.4, 0, 0, 7); ctx.fill(); }
-      }
-    });
-    const pos = [], uv = [], nor = [], idx = [];
-    for (let k = 0; k < 3; k++) {
-      const a = k * Math.PI / 3, dx = Math.cos(a) * 0.5, dz = Math.sin(a) * 0.5, o = pos.length / 3;
-      pos.push(-dx, 0, -dz, dx, 0, dz, dx, 0.85, dz, -dx, 0.85, dz * -1);
-      pos[pos.length - 1] = -dz;
-      uv.push(0, 0, 1, 0, 1, 1, 0, 1); for (let q = 0; q < 4; q++) nor.push(0, 1, 0);
-      idx.push(o, o + 1, o + 2, o, o + 2, o + 3);
+    // low-poly levendulabokor: szürkészöld halom, lila virágtüskékkel
+    const r = mulberry32(61), parts = [];
+    const paint = (g, hex, vary, leafY) => {
+      g = g.index ? g.toNonIndexed() : g; g.deleteAttribute('uv');
+      const p = g.attributes.position, col = new Float32Array(p.count * 3), c = new THREE.Color();
+      for (let f = 0; f < p.count / 3; f++) { c.set(hex).multiplyScalar(1 - vary + hashF(p.getX(f * 3), p.getY(f * 3), p.getZ(f * 3)) * vary * 2); for (let k = 0; k < 3; k++) { const i = f * 3 + k; col[i * 3] = c.r; col[i * 3 + 1] = c.g; col[i * 3 + 2] = c.b; } }
+      g.setAttribute('color', new THREE.BufferAttribute(col, 3)); return g;
+    };
+    const mound = new THREE.IcosahedronGeometry(0.42, 0); mound.scale(1, 0.62, 1); mound.translate(0, 0.2, 0); jitter(mound, 0.08, 3);
+    parts.push(paint(mound, '#6f8f5a', 0.1));
+    for (let k = 0; k < 6; k++) {
+      const a = k / 6 * 6.28 + r() * 0.5, d = 0.12 + r() * 0.16, h = 0.34 + r() * 0.16;
+      const sp = new THREE.ConeGeometry(0.06, h, 4); sp.translate(0, h / 2, 0); sp.rotateZ((r() - 0.5) * 0.4); sp.rotateX((r() - 0.5) * 0.4);
+      sp.translate(Math.cos(a) * d, 0.34, Math.sin(a) * d);
+      parts.push(paint(sp, r() < 0.5 ? '#8a5cc8' : '#9d6fd6', 0.08));
     }
-    const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2)); g.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3)); g.setIndex(idx);
-    const mat = new THREE.MeshLambertMaterial({ map: tex, alphaTest: 0.45, side: THREE.DoubleSide }); this.lavenderMat = mat;
+    const g = mergeGeometries(parts); g.computeVertexNormals();
+    const mat = new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true }); this.lavenderMat = mat;
     mat.onBeforeCompile = (sh) => {
       sh.uniforms.uTime = this.treeUniforms.uTime;
       sh.vertexShader = 'uniform float uTime;\n' + sh.vertexShader.replace('#include <begin_vertex>', `#include <begin_vertex>
-        float ph = instanceMatrix[3][0]*0.4 + instanceMatrix[3][2]*0.3; transformed.x += sin(uTime*2.0 + ph) * position.y * 0.08;`);
-      sh.fragmentShader = sh.fragmentShader.replace('#include <normal_fragment_begin>', '#include <normal_fragment_begin>\n normal = normalize(vNormal);');
+        float ph = instanceMatrix[3][0]*0.4 + instanceMatrix[3][2]*0.3; transformed.x += sin(uTime*2.0 + ph) * max(position.y - 0.3, 0.0) * 0.12;`);
     };
     const L = REG.lavender, items = [], rnd = mulberry32(62);
     for (let z = L.z0 + 2; z < L.z1 - 1; z += 2.9) for (let x = L.x0 + 1.5; x < L.x1 - 1; x += 1.6) {

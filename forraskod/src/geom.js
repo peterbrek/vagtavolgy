@@ -71,9 +71,9 @@ export function loft(rings, opts = {}) {
 }
 
 // Végtagszakasz a csuklópontból lefelé (-y), profile: [t, rx, ry, dz]
-export function limb(L, profile, radial = 12) {
+export function limb(L, profile, radial = 12, sub = 3) {
   const rings = profile.map(([t, rx, ry, dz = 0]) => ({ p: [0, -t * L, dz], rx, ry }));
-  return loft(rings, { up: [0, 0, 1], radial, sub: 3 });
+  return loft(rings, { up: [0, 0, 1], radial, sub });
 }
 
 // Felület, ami egy loft-test palástját követi (nyereg, alátét, takaró).

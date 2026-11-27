@@ -7,32 +7,26 @@ export class Grass {
   constructor(world, scene, quality) {
     this.world = world;
     this.radius = quality === 'low' ? 34 : 52;
-    this.cell = quality === 'low' ? 1.05 : 0.82;
+    this.cell = quality === 'low' ? 1.8 : 1.4;
     const maxN = Math.ceil(Math.PI * (this.radius / this.cell) ** 2 * 1.02);
     this.uniforms = { uTime: { value: 0 }, uCenter: { value: new THREE.Vector2() }, uRadius: { value: this.radius }, uHorse: { value: new THREE.Vector3(0, 0, -999) }, uSnow: { value: 0 }, uGrassTint: { value: new THREE.Color(1, 1, 1) } };
 
-    // fűcsomó: 6 penge
+    // low-poly fűcsomó: 3 háromoldalú tüske
     const r = mulberry32(3), blades = [];
-    for (let b = 0; b < 6; b++) {
-      const h = 0.3 + r() * 0.32, w = 0.045 + r() * 0.03, bend = (r() - 0.3) * 0.18;
-      const ox = (r() - 0.5) * 0.26, oz = (r() - 0.5) * 0.26, a = r() * Math.PI;
-      const v = [[-w / 2, 0, 0], [w / 2, 0, 0], [-w * 0.32, h * 0.55, bend * 0.4], [w * 0.32, h * 0.55, bend * 0.4], [0, h, bend]];
-      const pos = [], col = [];
-      const ca = Math.cos(a), sa = Math.sin(a);
-      for (const [x, y, z] of v) {
-        pos.push(ox + x * ca + z * sa, y, oz - x * sa + z * ca);
-        const t = y / 0.62; const c = 0.5 + t * 0.75; col.push(c, c, c * 0.92);
-      }
-      const g = new THREE.BufferGeometry();
-      g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-      g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
-      g.setAttribute('normal', new THREE.Float32BufferAttribute(new Array(15).fill(0).map((_, i) => (i % 3 === 1 ? 1 : 0)), 3));
-      g.setIndex([0, 1, 2, 1, 3, 2, 2, 3, 4]);
-      blades.push(g);
+    for (let b = 0; b < 3; b++) {
+      const h = 0.16 + r() * 0.13, rad = 0.045 + r() * 0.02;
+      const g = new THREE.ConeGeometry(rad, h, 3, 1, true); g.translate(0, h / 2, 0); g.rotateZ((r() - 0.5) * 0.35); g.rotateX((r() - 0.5) * 0.35);
+      g.translate((r() - 0.5) * 0.14, 0, (r() - 0.5) * 0.14); g.rotateY(r() * 3);
+      const ng = g.toNonIndexed(); ng.deleteAttribute('uv');
+      const p = ng.attributes.position, col = [];
+      const shade = 1.0 + r() * 0.2;
+      for (let i = 0; i < p.count; i++) { const c = (1.0 + Math.min(1, p.getY(i) / 0.3) * 0.3) * shade; col.push(c, c, c * 0.9); }
+      ng.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+      blades.push(ng);
     }
-    const geo = mergeGeometries(blades);
-    const mat = new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide });
-    this.patch(mat, 1.0);
+    const geo = mergeGeometries(blades); geo.computeVertexNormals();
+    const mat = new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide, flatShading: true });
+    this.patch(mat, 0.7);
     this.mesh = new THREE.InstancedMesh(geo, mat, maxN);
     this.mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     this.mesh.frustumCulled = false; this.mesh.receiveShadow = quality !== 'low';
@@ -40,14 +34,12 @@ export class Grass {
     this.mesh.setColorAt(0, new THREE.Color());
     scene.add(this.mesh);
 
-    // virágok
-    const petals = [];
-    for (let k = 0; k < 5; k++) {
-      const s = new THREE.SphereGeometry(0.035, 5, 3); s.scale(1, 0.35, 0.55);
-      const a = (k / 5) * Math.PI * 2; s.translate(Math.cos(a) * 0.035, 0, Math.sin(a) * 0.035); s.deleteAttribute('uv'); petals.push(s);
-    }
-    const fgeo = mergeGeometries(petals.map((g) => g.toNonIndexed())); fgeo.translate(0, 0.32, 0);
-    const fmat = new THREE.MeshLambertMaterial({ });
+    // virágok: kis oktaéder egy száron
+    const head = new THREE.OctahedronGeometry(0.06, 0); head.scale(1, 0.8, 1); head.translate(0, 0.27, 0);
+    const stem = new THREE.CylinderGeometry(0.008, 0.01, 0.24, 3, 1, true); stem.translate(0, 0.12, 0);
+    const paintG = (g, c) => { const ng = g.index ? g.toNonIndexed() : g; ng.deleteAttribute('uv'); const n = ng.attributes.position.count; ng.setAttribute('color', new THREE.Float32BufferAttribute(new Array(n).fill(c).flat(), 3)); return ng; };
+    const fgeo = mergeGeometries([paintG(head, [1, 1, 1]), paintG(stem, [0.42, 0.6, 0.3])]); fgeo.computeVertexNormals();
+    const fmat = new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true });
     this.patch(fmat, 0.6);
     this.flowers = new THREE.InstancedMesh(fgeo, fmat, 2200);
     this.flowers.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
@@ -59,7 +51,7 @@ export class Grass {
   }
 
   setQuality(q) {
-    this.radius = q === 'gyors' ? 34 : 52; this.cell = q === 'gyors' ? 1.05 : 0.82;
+    this.radius = q === 'gyors' ? 36 : 52; this.cell = q === 'gyors' ? 1.8 : 1.4;
     this.uniforms.uRadius.value = this.radius; this.last.set(1e9, 1e9);
   }
   patch(mat, windAmt) {
@@ -82,8 +74,7 @@ export class Grass {
           mvPosition.xz += normalize(away + 1e-4) * push * hy * 2.2; mvPosition.y -= push * hy * 0.8;
           mvPosition = modelViewMatrix * mvPosition;
           gl_Position = projectionMatrix * mvPosition;`);
-      sh.fragmentShader = 'uniform float uSnow; uniform vec3 uGrassTint;\n' + sh.fragmentShader.replace('#include <normal_fragment_begin>', '#include <normal_fragment_begin>\n normal = normalize(vNormal);')
-        .replace('#include <color_fragment>', '#include <color_fragment>\n diffuseColor.rgb *= uGrassTint; diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.8,0.84,0.9), uSnow*0.6);');
+      sh.fragmentShader = 'uniform float uSnow; uniform vec3 uGrassTint;\n' + sh.fragmentShader.replace('#include <color_fragment>', '#include <color_fragment>\n diffuseColor.rgb *= uGrassTint; diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.8,0.84,0.9), uSnow*0.6);');
     };
   }
 
@@ -112,7 +103,7 @@ export class Grass {
         W.gridColor(x, z, c); c.multiplyScalar(0.95 + hash2(i, j + 77) * 0.25);
         this.mesh.setColorAt(n, c); n++;
       }
-      if (nf < fmax && d > 0.5 && hash2(i + 333, j - 999) < 0.045 * d) {
+      if (nf < fmax && d > 0.5 && hash2(i + 333, j - 999) < 0.08 * d) {
         const fs = 0.8 + hr * 0.6; s.set(fs, fs * (0.7 + hx), fs); m.compose(p, q, s);
         this.flowers.setMatrixAt(nf, m);
         const pick = Math.floor(hash2(Math.floor(i / 9), Math.floor(j / 9)) * this.fcols.length);

@@ -6,7 +6,7 @@ import { clamp, lerp, damp, dampAngle, wrapAngle, mulberry32, smoothstep } from 
 
 const V3 = THREE.Vector3;
 const ZERO = new THREE.Matrix4().makeScale(0, 0, 0);
-const std = (c, o = {}) => new THREE.MeshStandardMaterial({ color: c, roughness: 0.8, ...o });
+const std = (c, o = {}) => new THREE.MeshStandardMaterial({ color: c, roughness: 0.8, flatShading: true, ...o });
 let SHADOW = true;
 function mk(geo, mat, parent, [x, y, z] = [0, 0, 0], [sx, sy, sz] = [1, 1, 1]) {
   const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); m.scale.set(sx, sy, sz); m.castShadow = SHADOW; parent.add(m); return m;
@@ -32,7 +32,7 @@ class Critter {
     this.t = rnd() * 4; this.state = 'idle'; this.rnd = rnd; this.tx = x; this.tz = z; this.opts = opts;
     const g = this.g = new THREE.Group(); scene.add(g); SHADOW = kind === 'deer' || kind === 'sheep';
     this.body = new THREE.Group(); g.add(this.body); this.legs = [];
-    const S = (r, w = 12) => new THREE.SphereGeometry(r, w, Math.round(w * 0.7));
+    const S = (r, w = 12) => new THREE.SphereGeometry(r, Math.max(5, Math.round(w * 0.55)), Math.max(3, Math.round(w * 0.38)));
     if (kind === 'deer') {
       const coat = std('#9a6a3e'), light = std('#e8dccb'), dark = std('#2a1d14');
       mk(S(1, 14), coat, this.body, [0, 0.98, 0], [0.24, 0.27, 0.58]);
@@ -62,7 +62,7 @@ class Critter {
       this.walk = 0.6; this.run = 5.5; this.fear = 11; this.near = 5; this.hop = true;
     } else if (kind === 'sheep') {
       const wool = std('#f1ede4', { roughness: 1 }), face = std('#2b2520');
-      for (const [x, y, z, r] of [[0, 0.62, 0, 0.32], [0, 0.66, 0.22, 0.27], [0, 0.66, -0.22, 0.27], [0.15, 0.58, 0, 0.22], [-0.15, 0.58, 0, 0.22], [0, 0.82, 0, 0.2]]) mk(new THREE.IcosahedronGeometry(r, 1), wool, this.body, [x, y, z]);
+      for (const [x, y, z, r] of [[0, 0.62, 0, 0.32], [0, 0.66, 0.22, 0.27], [0, 0.66, -0.22, 0.27], [0.15, 0.58, 0, 0.22], [-0.15, 0.58, 0, 0.22], [0, 0.82, 0, 0.2]]) mk(new THREE.IcosahedronGeometry(r, 0), wool, this.body, [x, y, z]);
       const hd = new THREE.Group(); hd.position.set(0, 0.72, 0.46); this.body.add(hd); this.head = hd;
       mk(S(1, 10), face, hd, [0, 0, 0.04], [0.1, 0.11, 0.15]);
       for (const s of [-1, 1]) { const e = mk(S(1, 6), face, hd, [s * 0.11, 0.04, -0.02], [0.07, 0.025, 0.035]); e.rotation.z = s * 0.3; }
@@ -139,7 +139,7 @@ export class Fauna {
       g.setAttribute('color', new THREE.BufferAttribute(c, 3)); geos.push(g);
     });
     root.position.copy(keep.p); root.rotation.copy(keep.r); root.scale.copy(keep.s);
-    const far = this.far = new THREE.InstancedMesh(mergeGeometries(geos), new THREE.MeshLambertMaterial({ vertexColors: true }), this.wild.length);
+    const far = this.far = new THREE.InstancedMesh(mergeGeometries(geos), new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true }), this.wild.length);
     far.frustumCulled = false; far.castShadow = false; this.scene.add(far);
     const z = new THREE.Matrix4().makeScale(0, 0, 0);
     this.wild.forEach((w, i) => { const c = COATS[w.coat]; far.setColorAt(i, new THREE.Color(c.patch && w.coat === 'tarka' ? '#c9b9a6' : c.base)); far.setMatrixAt(i, z); });

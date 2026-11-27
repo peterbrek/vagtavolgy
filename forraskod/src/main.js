@@ -9,6 +9,7 @@ import { Horse, COATS, SADDLES, PALETTE } from './horse.js';
 import { Rider, HAIR } from './rider.js';
 import { Sound } from './audio.js';
 import { DynTube, canvasTexture } from './geom.js';
+import { lowpolyfy } from './lowpoly.js';
 import { Post } from './post.js';
 import { clamp, lerp, smoothstep, damp, dampAngle, wrapAngle } from './noise.js';
 
@@ -161,6 +162,7 @@ function init() {
   // következő akadály nyíl
   arrow = new THREE.Mesh(new THREE.ConeGeometry(0.28, 0.65, 16), new THREE.MeshStandardMaterial({ color: '#ff8a2a', emissive: '#c24a00', emissiveIntensity: 0.6 }));
   arrow.rotation.x = Math.PI; arrow.visible = false; scene.add(arrow);
+  lowpolyfy(scene); // low-poly stílus: lapos árnyalás, egyszínű felületek
   mapCanvas = world.renderMap(400);
   applyQuality(q);
   if (S) applyLook(); else { horse.setCoat('pej', { blaze: true }); horse.setTack(TACK0()); rider.setLook(DEFAULT().rider); }

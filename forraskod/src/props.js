@@ -9,16 +9,17 @@ const box = (w, h, d, mat, x = 0, y = 0, z = 0) => { const m = new THREE.Mesh(ne
 
 if (typeof CanvasRenderingContext2D !== 'undefined' && !CanvasRenderingContext2D.prototype.roundRect) CanvasRenderingContext2D.prototype.roundRect = function (x, y, w, h) { this.rect(x, y, w, h); };
 function textTex(text, { w = 256, h = 64, bg = '#ffffff', fg = '#2b2b2b', font = 'bold 40px system-ui', border = null, round = 10 } = {}) {
-  return canvasTexture(w, h, (ctx) => {
+  return keep(canvasTexture(w, h, (ctx) => {
     ctx.fillStyle = bg; ctx.beginPath(); ctx.roundRect(2, 2, w - 4, h - 4, round); ctx.fill();
     if (border) { ctx.strokeStyle = border; ctx.lineWidth = 6; ctx.stroke(); }
     ctx.fillStyle = fg; ctx.font = font; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(text, w / 2, h / 2 + 2);
-  });
+  }));
 }
+const keep = (t) => { t.userData.keep = true; return t; };
 
 function stripeTex(a, b, n = 6) {
   const t = canvasTexture(128, 8, (ctx, w, h) => { for (let i = 0; i < n; i++) { ctx.fillStyle = i % 2 ? b : a; ctx.fillRect(i * w / n, 0, w / n + 1, h); } });
-  return t;
+  t.userData.keep = true; return t;
 }
 
 // statikus hálók összevonása anyagonként (kevesebb rajzhívás telefonon)
@@ -140,7 +141,7 @@ export function buildProps(world, scene) {
     sign.position.set(sx, 2.86, front + 0.01); st.add(sign);
     // névtáblák a boksz-ajtók fölött
     P.plates = P.stalls.map((S) => {
-      const c = document.createElement('canvas'); c.width = 256; c.height = 64; const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace;
+      const c = document.createElement('canvas'); c.width = 256; c.height = 64; const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.userData.keep = true;
       const m = new THREE.Mesh(new THREE.PlaneGeometry(1.15, 0.29), new THREE.MeshLambertMaterial({ map: t })); m.position.set(S.x, S.plateY, S.plateZ); m.userData.dynamic = true; m.visible = false; st.add(m);
       return { m, c, t, name: null };
     });
@@ -188,7 +189,7 @@ export function buildProps(world, scene) {
     // körbálák a réten
     const rbM = lam('#cfae5c', { map: hayTex });
     for (const [x, z, a] of [[-58, -6, 0.3], [-61, -9.5, 1.1], [70, -32, 0.6], [-30, 48, 2.0]]) {
-      const c = new THREE.Mesh(new THREE.CylinderGeometry(0.75, 0.75, 1.2, 16), rbM); c.rotation.z = Math.PI / 2; c.rotation.y = a;
+      const c = new THREE.Mesh(new THREE.CylinderGeometry(0.75, 0.75, 1.2, 9), rbM); c.rotation.z = Math.PI / 2; c.rotation.y = a;
       c.position.set(x, 0.74, z); c.castShadow = true; c.receiveShadow = true; G.add(c); world.addCircle(x, z, 0.85, 1.4);
     }
   }
@@ -223,7 +224,7 @@ export function buildProps(world, scene) {
     for (let i = 0; i < 10; i++) {
       const x = X0 + 6 + i * 8, z = Z1 + 0.8;
       G.add(box(1.4, 0.35, 0.45, fbM, x, 0.18, z));
-      for (let k = 0; k < 6; k++) { const f = new THREE.Mesh(new THREE.SphereGeometry(0.12, 6, 4), flM[(i + k) % 4]); f.position.set(x - 0.55 + k * 0.22, 0.45 + rnd() * 0.08, z + (rnd() - 0.5) * 0.2); G.add(f); }
+      for (let k = 0; k < 6; k++) { const f = new THREE.Mesh(new THREE.OctahedronGeometry(0.12, 0), flM[(i + k) % 4]); f.position.set(x - 0.55 + k * 0.22, 0.45 + rnd() * 0.08, z + (rnd() - 0.5) * 0.2); G.add(f); }
     }
     // bírói torony
     const jx = ARENA.x, jz = Z1 + 5;
@@ -249,7 +250,7 @@ export function buildProps(world, scene) {
       const wg = box(0.08, h + 0.25, 0.75, wingC, s * 2.35, (h + 0.25) / 2, z); g.add(wg);
       g.add(box(0.1, 0.1, 0.8, wingM, s * 2.35, h + 0.25, z));
     }
-    const pg = new THREE.CylinderGeometry(0.055, 0.055, W, 10); pg.rotateZ(Math.PI / 2);
+    const pg = new THREE.CylinderGeometry(0.06, 0.06, W, 6); pg.rotateZ(Math.PI / 2);
     const addPole = (y, z) => { const p = new THREE.Mesh(pg, poleM); p.position.set(0, y, z); p.castShadow = true; p.userData.rest = p.position.clone(); p.userData.dynamic = true; g.add(p); poles.push(p); return p; };
     if (type === 'oxer') { addPole(h - 0.08, -0.5); addPole((h - 0.08) * 0.55, -0.5); addPole(h, 0.5); addPole(h * 0.55, 0.5); }
     else { addPole(h, 0); addPole(h * 0.62, 0); addPole(h * 0.3, 0); }
@@ -274,7 +275,7 @@ export function buildProps(world, scene) {
     const bark = canvasTexture(128, 64, (ctx, W, H) => { ctx.fillStyle = '#6a4a33'; ctx.fillRect(0, 0, W, H); for (let i = 0; i < 70; i++) { ctx.strokeStyle = `rgba(${rnd() < 0.5 ? '40,25,15' : '140,110,80'},0.5)`; ctx.lineWidth = 1 + rnd() * 2; const y = rnd() * H; ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y + (rnd() - 0.5) * 6); ctx.stroke(); } });
     const ring = canvasTexture(64, 64, (ctx) => { ctx.fillStyle = '#c9a774'; ctx.fillRect(0, 0, 64, 64); ctx.strokeStyle = 'rgba(120,80,40,0.6)'; for (let r = 4; r < 32; r += 4) { ctx.beginPath(); ctx.arc(32, 32, r, 0, 7); ctx.stroke(); } });
     const r = 0.37, L = 4.4;
-    const c = new THREE.Mesh(new THREE.CylinderGeometry(r, r * 1.08, L, 14), [lam('#ffffff', { map: bark }), lam('#ffffff', { map: ring }), lam('#ffffff', { map: ring })]);
+    const c = new THREE.Mesh(new THREE.CylinderGeometry(r, r * 1.08, L, 8), [lam('#ffffff', { map: bark }), lam('#ffffff', { map: ring }), lam('#ffffff', { map: ring })]);
     c.rotation.z = Math.PI / 2; c.position.y = r; c.castShadow = true; c.receiveShadow = true; g.add(c);
     return { g, poles: [], w: L, d: r * 2, h: r * 2 };
   };
@@ -302,8 +303,8 @@ export function buildProps(world, scene) {
   };
   const makeRails = () => {
     const g = new THREE.Group(); const wood = lam('#7a5a3c');
-    for (const s of [-1, 1]) { const p = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.11, 1.3, 8), wood); p.position.set(s * 2.1, 0.65, 0); p.castShadow = true; g.add(p); }
-    for (const y of [0.5, 0.95]) { const r = new THREE.Mesh(new THREE.CylinderGeometry(0.085, 0.09, 4.5, 8), wood); r.rotation.z = Math.PI / 2; r.position.set(0, y, 0); r.castShadow = true; g.add(r); }
+    for (const s of [-1, 1]) { const p = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.11, 1.3, 6), wood); p.position.set(s * 2.1, 0.65, 0); p.castShadow = true; g.add(p); }
+    for (const y of [0.5, 0.95]) { const r = new THREE.Mesh(new THREE.CylinderGeometry(0.085, 0.09, 4.5, 6), wood); r.rotation.z = Math.PI / 2; r.position.set(0, y, 0); r.castShadow = true; g.add(r); }
     return { g, poles: [], w: 4.3, d: 0.3, h: 1.0 };
   };
 
@@ -329,8 +330,8 @@ export function buildProps(world, scene) {
   const makeBarrels = () => {
     const g = new THREE.Group(); const bm = lam('#7a4e2c'), ring = lam('#3a3a3a');
     for (const x of [-1.25, 0, 1.25]) {
-      const c = new THREE.Mesh(new THREE.CylinderGeometry(0.38, 0.38, 1.15, 14), bm); c.rotation.x = Math.PI / 2; c.position.set(x, 0.38, 0); c.castShadow = true; g.add(c);
-      for (const z of [-0.4, 0.4]) { const t = new THREE.Mesh(new THREE.TorusGeometry(0.385, 0.02, 4, 16), ring); t.position.set(x, 0.38, z); g.add(t); }
+      const c = new THREE.Mesh(new THREE.CylinderGeometry(0.38, 0.38, 1.15, 8), bm); c.rotation.x = Math.PI / 2; c.position.set(x, 0.38, 0); c.castShadow = true; g.add(c);
+      for (const z of [-0.4, 0.4]) { const t = new THREE.Mesh(new THREE.TorusGeometry(0.385, 0.022, 3, 8), ring); t.position.set(x, 0.38, z); g.add(t); }
     }
     return { g, poles: [], w: 3.8, d: 1.15, h: 0.78 };
   };
@@ -348,9 +349,9 @@ export function buildProps(world, scene) {
   };
   const makeFallenTree = () => {
     const g = new THREE.Group(); const bark = lam('#5f4330');
-    const t = new THREE.Mesh(new THREE.CylinderGeometry(0.36, 0.46, 5.4, 12), bark); t.rotation.z = Math.PI / 2; t.position.y = 0.42; t.castShadow = true; g.add(t);
+    const t = new THREE.Mesh(new THREE.CylinderGeometry(0.36, 0.46, 5.4, 7), bark); t.rotation.z = Math.PI / 2; t.position.y = 0.42; t.castShadow = true; g.add(t);
     for (const [x, a, l] of [[1.6, 0.7, 1.2], [-1.2, -0.9, 1.0], [0.4, 2.2, 0.9]]) { const b = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.1, l, 6), bark); b.position.set(x, 0.6, 0); b.rotation.set(a, 0, 0.5); b.castShadow = true; g.add(b); }
-    const root = new THREE.Mesh(new THREE.CylinderGeometry(0.75, 0.6, 0.3, 10), bark); root.rotation.z = Math.PI / 2; root.position.set(-2.8, 0.55, 0); g.add(root);
+    const root = new THREE.Mesh(new THREE.CylinderGeometry(0.75, 0.6, 0.3, 7), bark); root.rotation.z = Math.PI / 2; root.position.set(-2.8, 0.55, 0); g.add(root);
     return { g, poles: [], w: 5.0, d: 0.9, h: 0.88 };
   };
   const makeRockWall = () => {
@@ -502,11 +503,11 @@ export function buildProps(world, scene) {
   P.paddock = { x0: 92, x1: 132, z0: 200, z1: 230 };
   { const K = P.paddock; fenceLine([[K.x0, K.z0], [K.x1, K.z0], [K.x1, K.z1], [K.x0, K.z1], [K.x0, K.z0]], { h: 1.0, color: '#f2efe6' }); }
   { const wx = REG.farm.x - 9, wz = REG.farm.z - 6, wy = world.heightAt(wx, wz); // kút
-    const wl = new THREE.Mesh(new THREE.CylinderGeometry(0.75, 0.8, 0.8, 16, 1, true), stoneM); wl.position.set(wx, wy + 0.4, wz); wl.castShadow = true; G.add(wl);
+    const wl = new THREE.Mesh(new THREE.CylinderGeometry(0.75, 0.8, 0.8, 9, 1, true), stoneM); wl.position.set(wx, wy + 0.4, wz); wl.castShadow = true; G.add(wl);
     for (const s2 of [-1, 1]) G.add(box(0.1, 1.7, 0.1, darkWood, wx + s2 * 0.7, wy + 0.85, wz));
     const rf = box(1.8, 0.08, 1.2, lam('#a8402e'), wx, wy + 1.8, wz); rf.rotation.z = 0.0; G.add(rf); world.addCircle(wx, wz, 0.9, 99); }
   for (const [x, z, a] of [[REG.farm.x + 6, REG.farm.z + 8, 0.2], [REG.farm.x + 8.5, REG.farm.z + 7.2, 1.3], [130, 270, 0.7]]) {
-    const c = new THREE.Mesh(new THREE.CylinderGeometry(0.75, 0.75, 1.2, 16), lam('#cfae5c', { map: P.hayMat.map })); c.rotation.z = Math.PI / 2; c.rotation.y = a;
+    const c = new THREE.Mesh(new THREE.CylinderGeometry(0.75, 0.75, 1.2, 9), lam('#cfae5c', { map: P.hayMat.map })); c.rotation.z = Math.PI / 2; c.rotation.y = a;
     c.position.set(x, world.heightAt(x, z) + 0.74, z); c.castShadow = true; G.add(c); world.addCircle(x, z, 0.85, 1.4);
   }
   // útjelző tábla az otthon szélén
@@ -527,7 +528,7 @@ export function buildProps(world, scene) {
       if (h > 3) for (let c2 = -1; c2 <= 1; c2 += 2) { const cr = box(0.6, 0.6, 1.1, stoneM, Math.cos(am) * rad + Math.cos(am + Math.PI / 2) * c2 * 0.9, h + 0.3, Math.sin(am) * rad + Math.sin(am + Math.PI / 2) * c2 * 0.9); cr.rotation.y = -am + Math.PI / 2; ruinG.add(cr); }
       world.addBox(R.x + Math.cos(am) * rad, R.z + Math.sin(am) * rad, len / 2, 0.6, -am + Math.PI / 2, 99);
     }
-    const tw = new THREE.Mesh(new THREE.CylinderGeometry(3.2, 3.6, 10, 16, 1, true), stoneM); tw.position.set(-4, 5, -4); tw.castShadow = true; ruinG.add(tw);
+    const tw = new THREE.Mesh(new THREE.CylinderGeometry(3.2, 3.6, 10, 10, 1, true), stoneM); tw.position.set(-4, 5, -4); tw.castShadow = true; ruinG.add(tw);
     for (let i = 0; i < 8; i++) { if (i === 3) continue; const a = i / 8 * Math.PI * 2; ruinG.add(box(1.0, 0.9, 0.7, stoneM, -4 + Math.cos(a) * 3.1, 10.4, -4 + Math.sin(a) * 3.1)); }
     world.addCircle(R.x - 4, R.z - 4, 3.6, 99);
     for (const [x, z, s3] of [[3, 4, 0.7], [5, -2, 0.5], [-1, 6, 0.6], [7, 3, 0.45]]) { const rb = new THREE.Mesh(new THREE.DodecahedronGeometry(s3, 0), stoneM); rb.position.set(x, s3 * 0.5, z); rb.rotation.set(rnd(), rnd(), rnd()); rb.castShadow = true; ruinG.add(rb); world.addCircle(R.x + x, R.z + z, s3, s3 * 0.8); }
@@ -549,7 +550,7 @@ export function buildProps(world, scene) {
     for (let i = 0; i < 13 && guard < 2500; guard++) { const p = pts[Math.floor(r() * N)]; const x = p.x + (r() - 0.5) * 6, z = p.z + (r() - 0.5) * 6; if (okSpot(x, z) && freeOfTrees(x, z) && Math.hypot(x - HOME.x, z - HOME.z) > 100 && !items.some((q) => Math.hypot(q.x - x, q.z - z) < 40)) { items.push({ x, z }); i++; } }
     while (items.length < 40 && guard < 9000) { guard++; const x = (r() - 0.5) * 820, z = (r() - 0.5) * 820; if (okSpot(x, z) && freeOfTrees(x, z) && Math.hypot(x - HOME.x, z - HOME.z) > 110 && !items.some((q) => Math.hypot(q.x - x, q.z - z) < 45)) items.push({ x, z }); }
     items.forEach((it, i) => { it.id = i; it.y = world.heightAt(it.x, it.z) + 1.1; it.taken = false; it.phase = r() * 6; });
-    const tg = new THREE.TorusGeometry(0.3, 0.07, 8, 24, Math.PI * 1.45); tg.rotateZ(-Math.PI / 2 - Math.PI * 0.225);
+    const tg = new THREE.TorusGeometry(0.3, 0.075, 4, 12, Math.PI * 1.45); tg.rotateZ(-Math.PI / 2 - Math.PI * 0.225);
     const mat = new THREE.MeshStandardMaterial({ color: '#ffc93a', metalness: 0.35, roughness: 0.3, emissive: '#8a5a00', emissiveIntensity: 0.7 });
     const mesh = new THREE.InstancedMesh(tg, mat, items.length); mesh.castShadow = true; mesh.frustumCulled = false;
     G.add(mesh);
@@ -612,7 +613,7 @@ export function buildProps(world, scene) {
   }
   // alma és répa (újranövő készlet)
   {
-    const appleG = new THREE.SphereGeometry(0.11, 10, 8), appleM = new THREE.MeshStandardMaterial({ color: '#c8261f', roughness: 0.35 });
+    const appleG = new THREE.IcosahedronGeometry(0.11, 0), appleM = new THREE.MeshStandardMaterial({ color: '#c8261f', roughness: 0.5, flatShading: true });
     const r = mulberry32(77);
     P.apples = world.appleTrees.filter(() => r() < 0.7).slice(0, 10).map((t, i) => {
       const a = r() * 6.28, x = t.x + Math.cos(a) * 1.6, z = t.z + Math.sin(a) * 1.6; const m2 = new THREE.Mesh(appleG, appleM); m2.position.set(x, world.heightAt(x, z) + 0.1, z); m2.castShadow = true; G.add(m2);

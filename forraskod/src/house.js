@@ -141,7 +141,7 @@ export class House {
 
     // ---------- bútorok ----------
     const F = (w, h, d, m, px, py, pz, coll = true, parent = inner) => { const b = B(w, h, d, m, px, FLOOR + py, pz, parent); if (coll) solid(px - w / 2, pz - d / 2, px + w / 2, pz + d / 2, FLOOR + py + h / 2); return b; };
-    const cyl = (r, h, m, px, py, pz, seg = 14, parent = inner) => { const c = new THREE.Mesh(new THREE.CylinderGeometry(r, r, h, seg), m); c.position.set(px, FLOOR + py, pz); c.castShadow = true; c.receiveShadow = true; parent.add(c); return c; };
+    const cyl = (r, h, m, px, py, pz, seg = 14, parent = inner) => { const c = new THREE.Mesh(new THREE.CylinderGeometry(r, r, h, Math.min(seg, 8)), m); c.position.set(px, FLOOR + py, pz); c.castShadow = true; c.receiveShadow = true; parent.add(c); return c; };
     // NAPPALI — kanapé a válaszfalnak háttal, szemben a TV
     const sx0 = -3.9, sz0 = ZC + IT / 2 + 0.46;
     F(2.3, 0.42, 0.92, M.sofa, sx0, 0.21, sz0); F(2.3, 0.5, 0.22, M.sofa, sx0, 0.66, sz0 - 0.35, false); for (const s of [-1, 1]) F(0.22, 0.62, 0.92, M.sofa, sx0 + s * 1.04, 0.31, sz0, false);
@@ -163,9 +163,9 @@ export class House {
     F(0.36, 1.9, 1.1, M.wood, -HX + 0.2, 0.95, 3.4);
     for (let sh = 0; sh < 4; sh++) { F(0.3, 0.03, 1.0, M.dark, -HX + 0.22, 0.35 + sh * 0.45, 3.4, false); for (let k = 0; k < 7; k++) F(0.2, 0.26 + rnd() * 0.08, 0.09, M.book[(k + sh) % 5], -HX + 0.24, 0.5 + sh * 0.45, 3.0 + k * 0.12, false); }
     cyl(0.16, 0.03, M.dark, -HX + 0.35, 0.02, ZC + 0.4); cyl(0.025, 1.55, M.dark, -HX + 0.35, 0.8, ZC + 0.4, 6);
-    { const sh = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.24, 0.3, 14, 1, true), M.lamp); sh.position.set(-HX + 0.35, FLOOR + 1.6, ZC + 0.4); inner.add(sh); }
+    { const sh = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.24, 0.3, 8, 1, true), M.lamp); sh.position.set(-HX + 0.35, FLOOR + 1.6, ZC + 0.4); inner.add(sh); }
     solid(-HX, ZC, -HX + 0.55, ZC + 0.6, 2.0);
-    const plant = (px, pz, s = 1) => { cyl(0.18 * s, 0.35 * s, M.pot, px, 0.17 * s, pz, 10); for (let k = 0; k < 6; k++) { const l = new THREE.Mesh(new THREE.SphereGeometry(0.2 * s, 7, 5), M.plant); l.position.set(px + Math.cos(k) * 0.13 * s, FLOOR + (0.5 + (k % 3) * 0.14) * s, pz + Math.sin(k * 1.7) * 0.13 * s); l.scale.y = 1.4; inner.add(l); } solid(px - 0.2 * s, pz - 0.2 * s, px + 0.2 * s, pz + 0.2 * s); };
+    const plant = (px, pz, s = 1) => { cyl(0.18 * s, 0.35 * s, M.pot, px, 0.17 * s, pz, 10); for (let k = 0; k < 6; k++) { const l = new THREE.Mesh(new THREE.IcosahedronGeometry(0.2 * s, 0), M.plant); l.position.set(px + Math.cos(k) * 0.13 * s, FLOOR + (0.5 + (k % 3) * 0.14) * s, pz + Math.sin(k * 1.7) * 0.13 * s); l.scale.y = 1.4; inner.add(l); } solid(px - 0.2 * s, pz - 0.2 * s, px + 0.2 * s, pz + 0.2 * s); };
     plant(-HX + 0.35, HZ - 0.35); plant(0.25, HZ - 0.3, 0.8);
     // KONYHA — pult a keleti falon, tűzhely, mosogató, hűtő, étkezőasztal
     const kx = HX - 0.32;
@@ -181,7 +181,7 @@ export class House {
     solid(tx - 0.75, tz - 0.48, tx + 0.75, tz + 0.48);
     const chair = (px, pz, ry) => { const g = new THREE.Group(); g.position.set(px, FLOOR, pz); g.rotation.y = ry; inner.add(g); B(0.44, 0.05, 0.42, M.wood, 0, 0.46, 0, g); B(0.44, 0.5, 0.05, M.wood, 0, 0.73, -0.19, g); for (const a of [-1, 1]) for (const b of [-1, 1]) B(0.04, 0.46, 0.04, M.dark, a * 0.18, 0.23, b * 0.17, g); solid(px - 0.25, pz - 0.25, px + 0.25, pz + 0.25); };
     chair(tx - 0.4, tz - 0.7, 0); chair(tx + 0.4, tz - 0.7, 0); chair(tx - 0.4, tz + 0.7, Math.PI); chair(tx + 0.4, tz + 0.7, Math.PI);
-    cyl(0.2, 0.06, M.white, tx, 0.82, tz, 16); for (let k = 0; k < 4; k++) { const a = new THREE.Mesh(new THREE.SphereGeometry(0.055, 8, 6), lam(k % 2 ? '#c8261f' : '#7cb342')); a.position.set(tx + Math.cos(k * 1.6) * 0.08, FLOOR + 0.89, tz + Math.sin(k * 1.6) * 0.08); inner.add(a); }
+    cyl(0.2, 0.06, M.white, tx, 0.82, tz, 16); for (let k = 0; k < 4; k++) { const a = new THREE.Mesh(new THREE.IcosahedronGeometry(0.055, 0), lam(k % 2 ? '#c8261f' : '#7cb342')); a.position.set(tx + Math.cos(k * 1.6) * 0.08, FLOOR + 0.89, tz + Math.sin(k * 1.6) * 0.08); inner.add(a); }
     F(1.0, 0.02, 1.6, M.rug2, 2.6, 0.01, 2.2, false);
     // FÜRDŐSZOBA — kád, WC, mosdó
     const bx0 = 4.6, bz0 = -HZ + 0.42;
@@ -200,14 +200,14 @@ export class House {
     for (const s of [-1, 1]) { const p = F(0.66, 0.14, 0.4, M.pillow, bdx + s * 0.4, 0.6, -HZ + 0.36, false); p.rotation.x = -0.25; }
     F(1.66, 0.1, 1.45, M.duvet, bdx, 0.58, bdz + 0.34, false); F(1.7, 0.4, 0.04, M.duvet, bdx, 0.4, bdz + 1.07, false);
     this.spots.bed = { x: bdx + 0.35, z: bdz + 0.05, yaw: 0, kind: 'lie', y: 0.76, label: '🛏️ Lefekszem' };
-    for (const s of [-1, 1]) { F(0.45, 0.5, 0.4, M.wood, bdx + s * 1.15, 0.25, -HZ + 0.25); cyl(0.07, 0.2, M.dark, bdx + s * 1.15, 0.6, -HZ + 0.25, 8); const sh = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.15, 0.18, 12, 1, true), M.lamp); sh.position.set(bdx + s * 1.15, FLOOR + 0.78, -HZ + 0.25); inner.add(sh); }
+    for (const s of [-1, 1]) { F(0.45, 0.5, 0.4, M.wood, bdx + s * 1.15, 0.25, -HZ + 0.25); cyl(0.07, 0.2, M.dark, bdx + s * 1.15, 0.6, -HZ + 0.25, 8); const sh = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.15, 0.18, 7, 1, true), M.lamp); sh.position.set(bdx + s * 1.15, FLOOR + 0.78, -HZ + 0.25); inner.add(sh); }
     F(0.62, 2.1, 1.5, M.wood, -HX + 0.32, 1.05, -1.65); F(0.02, 1.9, 0.02, M.dark, -HX + 0.64, 1.05, -1.65, false);
     F(1.2, 0.05, 0.55, M.wood, 0.4, 0.75, -HZ + 0.3); for (const a of [-1, 1]) F(0.05, 0.73, 0.5, M.wood, 0.4 + a * 0.55, 0.37, -HZ + 0.3, false);
     chair(0.4, -HZ + 0.85, Math.PI);
     F(1.6, 0.02, 1.0, M.rug2, bdx, 0.01, bdz + 1.65, false);
     plant(1.05, -1.0, 0.85);
     // lovas poszter a hálóban és kép a nappaliban
-    const poster = (px, py, pz, ry, w, h, draw) => { const t = canvasTexture(256, Math.round(256 * h / w), draw); const m = new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshLambertMaterial({ map: t })); m.position.set(px, FLOOR + py, pz); m.rotation.y = ry; wallItems.add(m); };
+    const poster = (px, py, pz, ry, w, h, draw) => { const t = canvasTexture(256, Math.round(256 * h / w), draw); t.userData.keep = true; const m = new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshLambertMaterial({ map: t })); m.position.set(px, FLOOR + py, pz); m.rotation.y = ry; wallItems.add(m); };
     const horsePic = (bg) => (c, W, H) => { c.fillStyle = bg; c.fillRect(0, 0, W, H); c.fillStyle = '#fff8'; c.beginPath(); c.arc(W * 0.75, H * 0.25, 22, 0, 7); c.fill(); c.fillStyle = '#4d2815'; c.beginPath(); c.ellipse(W * 0.45, H * 0.6, W * 0.22, H * 0.11, 0, 0, 7); c.fill(); c.lineWidth = 9; c.strokeStyle = '#4d2815'; for (const [a, b] of [[0.3, 0.27], [0.36, 0.4], [0.55, 0.5], [0.62, 0.66]]) { c.beginPath(); c.moveTo(W * a, H * 0.66); c.lineTo(W * b, H * 0.9); c.stroke(); } c.beginPath(); c.moveTo(W * 0.62, H * 0.56); c.lineTo(W * 0.76, H * 0.32); c.lineWidth = 18; c.stroke(); c.beginPath(); c.ellipse(W * 0.8, H * 0.33, 22, 12, -0.5, 0, 7); c.fill(); c.fillStyle = '#1b1612'; c.fillRect(W * 0.2, H * 0.55, 18, 40); c.lineWidth = 10; c.strokeStyle = '#6b4a2e'; c.strokeRect(5, 5, W - 10, H - 10); };
     poster(bdx, 1.75, -HZ + 0.01, 0, 1.1, 0.75, horsePic('#f6c7a0'));
     poster(-HX + 0.01, 1.7, 1.2, Math.PI / 2, 1.0, 0.7, horsePic('#a9d3ee'));
@@ -218,7 +218,7 @@ export class House {
     // mennyezet (bentről látszik)
     this.ceilMat = new THREE.MeshLambertMaterial({ color: '#f6f1e8', emissive: '#a39d92', emissiveIntensity: 0.8 });
     { const c = new THREE.Mesh(new THREE.PlaneGeometry(2 * HX + 0.1, 2 * HZ + 0.1), this.ceilMat); c.rotation.x = Math.PI / 2; c.position.set(0, FLOOR + WH - 0.02, 0); c.receiveShadow = true; this.root.add(c); this.ceiling = c;
-      for (const [cx, cz] of [[-2.6, 2.1], [3.2, 2.1], [-2.4, -2.6], [3.6, -2.6]]) { const l = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.26, 0.06, 16), M.lamp); l.position.set(cx, FLOOR + WH - 0.06, cz); this.root.add(l); } }
+      for (const [cx, cz] of [[-2.6, 2.1], [3.2, 2.1], [-2.4, -2.6], [3.6, -2.6]]) { const l = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.26, 0.06, 8), M.lamp); l.position.set(cx, FLOOR + WH - 0.06, cz); this.root.add(l); } }
     mergeStatic(ext); mergeStatic(walls); mergeStatic(wallItems); mergeStatic(roof); mergeStatic(inner);
     // ütközők a világban: falak és bútorok (be lehet sétálni az ajtón); a ló nem fér be
     for (const [x0, z0, x1, z1, h] of this.boxes) world.addBox(x + (x0 + x1) / 2, z + (z0 + z1) / 2, (x1 - x0) / 2, (z1 - z0) / 2, 0, h);
